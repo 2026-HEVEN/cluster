@@ -8,6 +8,7 @@
 #include "driver/twai.h"
 #include "can_protocol.h"
 #include "state.h"
+#include "wheel_speed_logic.h"
 
 namespace can_bus {
 
@@ -23,6 +24,7 @@ namespace {
     uint16_t u16le(const uint8_t *d) { return (uint16_t)(d[0] | (d[1] << 8)); }
 
     constexpr uint32_t BMS_CAN_STALE_MS = 5000;
+    constexpr WheelSpeedConfig WSS_CONFIG { 0.4597f };
 
     float absf(float v) { return v < 0.0f ? -v : v; }
 
@@ -141,6 +143,21 @@ void poll_rx() {
                 state.vcu_cluster_status_last_ms = now;
                 decode_vcu_cluster_status(m.data);
                 break;
+            case CAN_ID_VCU_WHEEL_SPEEDS:
+            {
+                const FourWheelSpeed speeds = decode_wheel_speed_frame(m.data, WSS_CONFIG);
+                state.wheel_speed_rpm_fl = speeds.rpm_fl;
+                state.wheel_speed_rpm_fr = speeds.rpm_fr;
+                state.wheel_speed_rpm_rl = speeds.rpm_rl;
+                state.wheel_speed_rpm_rr = speeds.rpm_rr;
+                state.wheel_speed_kph_fl = speeds.kph_fl;
+                state.wheel_speed_kph_fr = speeds.kph_fr;
+                state.wheel_speed_kph_rl = speeds.kph_rl;
+                state.wheel_speed_kph_rr = speeds.kph_rr;
+                state.vehicle_speed_kph = speeds.vehicle_kph;
+                state.wheel_speeds_last_rx_ms = now;
+                break;
+            }
             default:
                 break;
         }

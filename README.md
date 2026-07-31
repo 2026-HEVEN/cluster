@@ -10,7 +10,7 @@
 
 - **스택**: PlatformIO + Arduino-ESP32, TWAI(CAN), ILI9341 LCD. 화면은 **패널 독립적 1bpp 프레임버퍼**(위젯이 그림) + `display_blit`(ILI9341로 blit)
 - **구조**: 잠긴 코어(CAN·프레임버퍼·blit) + 팀원이 채우는 순수 모듈(`src/modules/`). VCU와 **동일한 2층 설계**지만 안전 FSM·50ms 라이프 태스크가 없고 CAN은 **수신(RX) 위주**입니다.
-- **상태**: ESP32 빌드 그린, 호스트 테스트 39개 통과
+- **상태**: ESP32 빌드 그린, 호스트 테스트 59개 통과
 
 ## 빠른 시작
 
@@ -32,7 +32,41 @@ pio run -e esp32dev -t upload
 > 🧪 **테스트가 처음이거나 Windows 사용자라면** → 노션 [펌웨어 테스트 실행 방법](https://www.notion.so/390913e532e68199a9b5e340b73e9e71) 참고. AI에 복붙할 프롬프트 + "이렇게 나오면 성공" 출력 예시 + Windows(WSL2/MinGW) 셋업까지 있습니다. (보드 업로드는 Windows도 그냥 되고, `native` 단위테스트만 host 컴파일러가 필요해요.)
 
 > ℹ️ 모터컨트롤러 값은 MCU→VCU 피드백 프레임을 Cluster가 같은 CAN 버스에서 수신합니다. BMS SOC는 `LWS-1608` BLE BMS에 Cluster ESP32가 직접 연결해 표시용 telemetry로만 읽습니다.
+> ℹ️ 계기판 속도 표시는 VCU가 송신하는 휠스피드 프레임 `0x1802C0D0`을 우선 사용합니다. FL/FR/RL/RR RPM을 km/h로 변환하고, 최솟값/최댓값을 제외한 가운데 두 바퀴 평균을 대표 속도로 표시합니다.
 
+
+## 현재 하드웨어 핀맵
+
+| 구분 | 기능 | ESP32 GPIO | 연결/동작 |
+|------|------|------------|-----------|
+| CAN | TXD | GPIO5 | CAN 트랜시버 TXD |
+| CAN | RXD | GPIO4 | CAN 트랜시버 RXD |
+| LCD ILI9341 | CS | GPIO26 | LCD controller CS, SD_CS 아님 |
+| LCD ILI9341 | DC | GPIO25 | D/C, A0 |
+| LCD ILI9341 | RST | GPIO33 | LCD reset |
+| LCD ILI9341 | SCK | GPIO18 | SPI clock |
+| LCD ILI9341 | MOSI | GPIO23 | ESP32 -> LCD |
+| GPS ZED-F9P | RX | GPIO22 | GNSS UART TX -> ESP32, 38400 baud NMEA RMC |
+| HMI | Paddock | GPIO13 | 토글 스위치, INPUT_PULLUP, ON=LOW |
+| HMI | TC | GPIO14 | 토글 스위치, INPUT_PULLUP, ON=LOW |
+| HMI | Regen rotary bit0 | GPIO16 | 4단 로터리 셀렉터 코드 bit0, INPUT_PULLUP, active LOW |
+| HMI | Regen rotary bit1 | GPIO17 | 4단 로터리 셀렉터 코드 bit1, INPUT_PULLUP, active LOW |
+| HMI | Debug | GPIO27 | 토글 스위치, INPUT_PULLUP, ON=LOW |
+| HMI | GPS Lap Start | GPIO19 | 순간 푸시 버튼, 정상 상태에서 GPS lap start 저장 |
+| HMI | Car Check | GPIO21 | 순간 푸시 버튼, 차량 상태 상세 화면 |
+| HMI | Warning Detail | GPIO32 | 순간 푸시 버튼, warning 상세 화면 토글 |
+| LV monitor | LV voltage ADC | GPIO34 | 12V 라인을 100k/27k 저항분압 후 입력 |
+
+회생제동 4단 로터리 셀렉터는 `bit1 bit0` 조합으로 `0~3` 단계를 만든다. 두 선 모두 내부 pull-up을 사용하므로 각 코드선은 선택 시 GND로 떨어지는 active-low 배선이다.
+
+| Regen level | bit1(GPIO17) | bit0(GPIO16) |
+|-------------|--------------|--------------|
+| 0 | HIGH | HIGH |
+| 1 | HIGH | LOW |
+| 2 | LOW | HIGH |
+| 3 | LOW | LOW |
+
+VESS, 기어, 시동 스위치는 클러스터 패널/PCB에 물리 배치할 수 있지만 Cluster ESP32 GPIO에는 연결하지 않는다. 해당 신호는 VESS 회로 또는 VCU/차량 배선 쪽에서 처리한다.
 ## 어디서 작업하나
 
 | 폴더 | 내용 | 편집? |

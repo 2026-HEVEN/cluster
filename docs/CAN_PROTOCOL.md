@@ -74,6 +74,7 @@
 | MCU → METER | 계기 메시지 I | `0x180117EF` | `0x180117F0` | 100ms | 6 |
 | MCU → METER | 계기 메시지 II | `0x180217EF` | `0x180217F0` | 100ms | 6 |
 | Cluster → VCU | 커맨드 (패독/TC/회생/디버그) | `0x1801D0C0` (신규) | — | 100ms | 6 |
+| VCU → Cluster | 휠스피드 RPM | `0x1802C0D0` (신규) | — | 50~100ms 권장 | 6 |
 | Cluster → TMA-1/logger | BMS 상태 요약 | `0x18F3FFC0` (신규) | — | 100ms | 6 |
 | Cluster → TMA-1/logger | BMS 상세 요약 | `0x18F4FFC0` (신규) | — | 100ms | 6 |
 
@@ -156,7 +157,7 @@
 
 ### 5.7 Cluster → VCU : 커맨드  `0x1801D0C0` (신규 할당) · 100ms
 
-> 계기판 config 버튼(패독·TC·회생제동·디버그)을 VCU에 전달. **EZkontrol 표준이 아닌 HEVEN 자체 정의.**
+> 계기판 config 입력(패독·TC·4단 회생제동 로터리·디버그)을 VCU에 전달. **EZkontrol 표준이 아닌 HEVEN 자체 정의.**
 > 기어 스위치는 Cluster ESP32에 직접 연결하지 않고 VCU 쪽 ADC/pass-through 회로에서 읽는다.
 > PF=0x01, PS=0xD0(VCU), SA=0xC0(Cluster). MCU→VCU(0x1801D0EF)와 SA로 구분되어 충돌 없음.
 > 인코딩 구현: Cluster 펌웨어 `encode_cluster_command()`. 아래 레이아웃과 일치.
@@ -164,7 +165,7 @@
 | 바이트 | 항목 | 의미 |
 |--------|------|------|
 | 0 | Reserved | 0 |
-| 1 | Config flags | bit0: TC enabled, bit2-1: Regen level(0~3), bit3: Debug enabled, bit7-4: reserved(0) |
+| 1 | Config flags | bit0: TC enabled, bit2-1: Regen rotary level(0~3), bit3: Debug enabled, bit7-4: reserved(0) |
 | 2 | Flags | bit0: Paddock request, bit7-1: reserved(0) |
 | 3~7 | 예약 | 0 |
 
@@ -188,7 +189,27 @@
 > BMS SOC는 현재 `LWS-1608` BLE BMS를 Cluster ESP32가 직접 polling해서 표시한다.
 > VCU가 추후 SOC를 확정값으로 보내야 하는 경우에만 이 프레임의 `SOC valid`와 `SOC percent`를 사용한다. VCU 프레임에서 SOC valid가 0이어도 BLE로 받은 SOC는 지우지 않는다.
 
-### 5.9 Cluster → TMA-1/logger : BMS 상태 요약 `0x18F3FFC0` (HEVEN 정의) · 100ms
+### 5.9 VCU → Cluster : 휠스피드 RPM `0x1802C0D0` (HEVEN 정의) · 50~100ms 권장
+
+> VCU가 휠스피드 센서 RPM 값을 Cluster ESP32에 전달하는 프레임이다.
+> Cluster는 이 값을 타이어 지름 0.4597m 기준 km/h로 변환하고, 네 바퀴 중 최솟값/최댓값을 제외한 가운데 두 바퀴 평균을 대표 차량 속도로 LCD에 표시한다.
+> 300ms 이상 수신되지 않으면 Cluster 표시 속도는 0km/h로 내려간다.
+
+| 바이트 | 항목 | 분해능/의미 |
+|--------|------|-------------|
+| 0~1 | Front Left wheel RPM | uint16 little-endian, 1 rpm/bit |
+| 2~3 | Front Right wheel RPM | uint16 little-endian, 1 rpm/bit |
+| 4~5 | Rear Left wheel RPM | uint16 little-endian, 1 rpm/bit |
+| 6~7 | Rear Right wheel RPM | uint16 little-endian, 1 rpm/bit |
+
+속도 변환식:
+
+```text
+wheel_kph = wheel_rpm * pi * wheel_diameter_m * 0.06
+wheel_diameter_m = 0.4597
+vehicle_kph = average(middle two wheel_kph values after dropping min and max)
+```
+### 5.10 Cluster → TMA-1/logger : BMS 상태 요약 `0x18F3FFC0` (HEVEN 정의) · 100ms
 
 > Cluster가 BLE로 직접 수신한 LWS-1608 BMS 표시용 정보를 TMA-1/logger에 전달한다.
 > 이 프레임은 **차량 제어용 안전판단에 사용하지 않는다.** BLE가 끊기면 valid bit가 0으로 내려가며, 수신기는 해당 값을 stale/display-only로 취급한다.
@@ -203,7 +224,7 @@
 | 6 | BMS temperature | 1 ℃/bit, offset −40 ℃ |
 | 7 | Life signal | 0~255 |
 
-### 5.10 Cluster → TMA-1/logger : BMS 상세 요약 `0x18F4FFC0` (HEVEN 정의) · 100ms
+### 5.11 Cluster → TMA-1/logger : BMS 상세 요약 `0x18F4FFC0` (HEVEN 정의) · 100ms
 
 | 바이트 | 항목 | 분해능/의미 |
 |--------|------|-------------|
@@ -272,11 +293,12 @@ constexpr uint32_t CAN_ID_FB1_R = 0x1801D0F0;
 constexpr uint32_t CAN_ID_FB2_R = 0x1802D0F0;
 constexpr uint32_t CAN_ID_CLUSTER_CMD = 0x1801D0C0;
 constexpr uint32_t CAN_ID_VCU_CLUSTER_STATUS = 0x1801C0D0;
+constexpr uint32_t CAN_ID_VCU_WHEEL_SPEEDS = 0x1802C0D0;
 constexpr uint32_t CAN_ID_CLUSTER_BMS_STATUS = 0x18F3FFC0;
 constexpr uint32_t CAN_ID_CLUSTER_BMS_DETAIL = 0x18F4FFC0;
 
 // 디코더: raw_to_voltage(×0.1), raw_to_current(×0.1,-3200), raw_to_temp(-40), raw_to_speed(1rpm/bit,-32000)
-// RX 파싱 구현: src/core/can_bus.cpp poll_rx() — state의 기본 필드=Controller_L, `_r` 접미사=Controller_R
+// RX 파싱 구현: src/core/can_bus.cpp poll_rx() — 컨트롤러 피드백, VCU 표시 상태, VCU 휠스피드 프레임을 state에 반영
 ```
 
 METER 경로(§5.5/5.6, 0.1rpm/bit)는 이 설계에서 사용하지 않는다 — 컨트롤러가 VCU 모드로 고정되므로 필요 없음.

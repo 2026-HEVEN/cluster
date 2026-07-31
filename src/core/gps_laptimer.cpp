@@ -10,9 +10,9 @@ namespace gps_laptimer {
 namespace {
 constexpr int PIN_GPS_RX = 22;      // GPS TX -> ESP32 GPIO22
 constexpr int PIN_GPS_TX = -1;      // receive-only
-constexpr uint32_t GPS_BAUD = 9600;
+constexpr uint32_t GPS_BAUD = 38400;
 constexpr int GPS_LINE_MAX = 96;
-constexpr float START_RADIUS_M = 6.0f;
+constexpr float START_RADIUS_M = 2.0f;
 constexpr float REARM_RADIUS_M = 20.0f;
 constexpr uint32_t MIN_LAP_MS = 10000;
 constexpr uint32_t GPS_FIX_TIMEOUT_MS = 3000;

@@ -39,6 +39,7 @@ namespace {
     constexpr uint32_t CAN_STARTUP_GRACE_MS = 3000;
     constexpr uint32_t CONTROLLER_FRAME_TIMEOUT_MS = 300;
     constexpr uint32_t VCU_STATUS_TIMEOUT_MS = 300;
+    constexpr uint32_t WSS_FRAME_TIMEOUT_MS = 300;
     FrameBuffer fb;
     bool warning_detail_page = false;
     bool warning_button_down = false;
@@ -305,6 +306,10 @@ namespace {
             }
         }
 
+        if (frame_stale(state.wheel_speeds_last_rx_ms, now, WSS_FRAME_TIMEOUT_MS)) {
+            state.vehicle_speed_kph = 0.0f;
+        }
+
         if (state.gear_from_can && vcu_status_stale(now)) {
             state.gear_from_can = false;
             state.brake = false;
@@ -353,7 +358,7 @@ static void display_update() {
     } else if (warn && warning_detail_page) {
         draw_warning_detail();
     } else {
-        widget_speed_draw(fb,    10,  10, (int)state.speed_rpm);
+        widget_speed_draw(fb,    10,  10, (int)(state.vehicle_speed_kph + 0.5f));
         widget_warnings_draw(fb, 248,  22, warn, state.hv_active);
         widget_gear_draw(fb,     289,  16, gear_code(state.gear));
         const int soc_pct = state.soc_valid ? (int)(state.soc * 100.0f + 0.5f) : -1;

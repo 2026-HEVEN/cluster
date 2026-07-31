@@ -39,6 +39,9 @@ constexpr uint32_t CAN_ID_CLUSTER_CMD = 0x1801D0C0;
 // VCU -> Cluster display status. HEVEN-defined. Used for VCU-confirmed gear,
 // HV/brake state, and optional SOC when a battery interface is available.
 constexpr uint32_t CAN_ID_VCU_CLUSTER_STATUS = 0x1801C0D0;
+// VCU -> Cluster four-wheel WSS RPM. Bytes 0..7 contain FL, FR, RL, RR
+// respectively as uint16 little-endian values at 1 rpm/bit.
+constexpr uint32_t CAN_ID_VCU_WHEEL_SPEEDS = 0x1802C0D0;
 // Cluster -> logger/TMA-1 BMS telemetry, broadcast. HEVEN-defined.
 constexpr uint32_t CAN_ID_CLUSTER_BMS_STATUS = 0x18F3FFC0;
 constexpr uint32_t CAN_ID_CLUSTER_BMS_DETAIL = 0x18F4FFC0;

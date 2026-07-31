@@ -27,6 +27,17 @@ struct ClusterState {
     uint32_t controller_l_fb2_last_ms = 0;
     // Controller_R mirror of the above (dual motor — see CAN_PROTOCOL.md §7)
     float    speed_rpm_r    = 0.0f;
+    // Four-wheel WSS values received from the VCU.
+    uint16_t wheel_speed_rpm_fl = 0;
+    uint16_t wheel_speed_rpm_fr = 0;
+    uint16_t wheel_speed_rpm_rl = 0;
+    uint16_t wheel_speed_rpm_rr = 0;
+    float wheel_speed_kph_fl = 0.0f;
+    float wheel_speed_kph_fr = 0.0f;
+    float wheel_speed_kph_rl = 0.0f;
+    float wheel_speed_kph_rr = 0.0f;
+    float vehicle_speed_kph = 0.0f; // trimmed mean of the four WSS speeds
+    uint32_t wheel_speeds_last_rx_ms = 0;
     float    bus_voltage_r  = 0.0f;
     float    bus_current_r  = 0.0f;
     int      controller_temp_r = 0;

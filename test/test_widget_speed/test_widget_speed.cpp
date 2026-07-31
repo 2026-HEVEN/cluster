@@ -19,7 +19,7 @@ void test_zero_speed_draws_zero(void) {
 }
 void test_speed_draws_no_unit_or_bar_tail(void) {
     FrameBuffer fb; fb.clear();
-    widget_speed_draw(fb, 0, 0, 1600);
+    widget_speed_draw(fb, 0, 0, 160);
     int lit = 0;
     for (int yy = 62; yy < 86; yy++)
         for (int xx = 220; xx < 240; xx++)

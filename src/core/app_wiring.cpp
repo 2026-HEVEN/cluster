@@ -17,6 +17,7 @@
 #include "modules/widgets/widget_gear.h"
 #include "modules/widgets/widget_laptime.h"
 #include <Arduino.h>
+#include <XPT2046_Touchscreen.h>
 #include <cstdio>
 
 // [LOCKED] The ONLY translation unit that touches `state`.
@@ -31,7 +32,7 @@ namespace {
     constexpr int PIN_REGEN_ROTARY_BIT1 = 17; // 4-position rotary selector code bit1
     constexpr int PIN_DEBUG = 27;
     constexpr int PIN_GPS_LAP_START = 19;     // set GPS lap start
-    constexpr int PIN_STATUS_PAGE = 21;    // LOW shows vehicle status
+    constexpr int PIN_TOUCH_CS = 21;        // XPT2046 touch chip select; touch toggles vehicle status
     constexpr int PIN_WARNING_DETAIL = 32; // LOW toggles warning detail page
     constexpr int PIN_LV_VOLTAGE = 34;   // ADC1, 100k/27k divider from LV 12V
     constexpr float LV_ADC_REF_V = 3.3f;
@@ -43,6 +44,11 @@ namespace {
     constexpr uint32_t WSS_FRAME_TIMEOUT_MS = 300;
     FrameBuffer fb;
     bool warning_detail_page = false;
+    bool status_page = false;
+    bool status_touch_down = false;
+    uint32_t status_touch_last_ms = 0;
+    constexpr uint32_t STATUS_TOUCH_DEBOUNCE_MS = 120;
+    XPT2046_Touchscreen touch(PIN_TOUCH_CS);
     bool gps_lap_start_button_down = false;
     uint32_t gps_lap_start_button_last_ms = 0;
     bool warning_detail_button_down = false;
@@ -101,7 +107,7 @@ namespace {
     }
 
     bool status_page_active() {
-        return digitalRead(PIN_STATUS_PAGE) == LOW;
+        return status_page;
     }
 
     const char *fresh_label(uint32_t last_ms, uint32_t now, uint32_t timeout_ms) {
@@ -273,6 +279,17 @@ namespace {
         return bit0 | bit1;
     }
 
+    void status_touch_update() {
+        const bool down = touch.touched();
+        const uint32_t now = millis();
+        if (down != status_touch_down && now - status_touch_last_ms >= STATUS_TOUCH_DEBOUNCE_MS) {
+            status_touch_down = down;
+            status_touch_last_ms = now;
+            if (down) {
+                status_page = !status_page;
+            }
+        }
+    }
     void gps_lap_start_update() {
         if (warning_active()) {
             gps_laptimer::stop();
@@ -344,6 +361,7 @@ static void hmi_update() {
     refresh_can_timeouts();
     gps_lap_start_update();
     warning_detail_update();
+    status_touch_update();
 
     HmiSwitches sw;
     sw.paddock       = digitalRead(PIN_PADDOCK) == LOW;
@@ -411,11 +429,13 @@ void modules_init() {
     pinMode(PIN_REGEN_ROTARY_BIT1, INPUT_PULLUP);
     pinMode(PIN_DEBUG, INPUT_PULLUP);
     pinMode(PIN_GPS_LAP_START, INPUT_PULLUP);
-    pinMode(PIN_STATUS_PAGE, INPUT_PULLUP);
     pinMode(PIN_WARNING_DETAIL, INPUT_PULLUP);
     analogSetPinAttenuation(PIN_LV_VOLTAGE, ADC_11db);
     can_bus::begin();
     gps_laptimer::begin();
     bms_ble::begin();
+    pinMode(PIN_TOUCH_CS, OUTPUT);
+    digitalWrite(PIN_TOUCH_CS, HIGH);
     display_blit::begin();
+    touch.begin();
 }

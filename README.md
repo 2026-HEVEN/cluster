@@ -10,7 +10,7 @@
 
 - **스택**: PlatformIO + Arduino-ESP32, TWAI(CAN), ILI9341 LCD. 화면은 **패널 독립적 1bpp 프레임버퍼**(위젯이 그림) + `display_blit`(ILI9341로 blit)
 - **구조**: 잠긴 코어(CAN·프레임버퍼·blit) + 팀원이 채우는 순수 모듈(`src/modules/`). VCU와 **동일한 2층 설계**지만 안전 FSM·50ms 라이프 태스크가 없고 CAN은 **수신(RX) 위주**입니다.
-- **상태**: ESP32 빌드 그린, 호스트 테스트 59개 통과
+- **상태**: ESP32 빌드 그린, 호스트 테스트 60개 통과
 
 ## 빠른 시작
 
@@ -46,6 +46,8 @@ pio run -e esp32dev -t upload
 | LCD ILI9341 | RST | GPIO33 | LCD reset |
 | LCD ILI9341 | SCK | GPIO18 | SPI clock |
 | LCD ILI9341 | MOSI | GPIO23 | ESP32 -> LCD |
+| LCD / Touch SPI | MISO / T_DO | GPIO35 | Touch controller -> ESP32, LCD SDO readback optional |
+| LCD Touch XPT2046 | T_CS | GPIO21 | Touch chip select, 터치 시 Car Check 화면 토글 |
 | GPS ZED-F9P | RX | GPIO22 | GNSS UART TX -> ESP32, 38400 baud NMEA RMC |
 | HMI | Paddock | GPIO13 | 토글 스위치, INPUT_PULLUP, ON=LOW |
 | HMI | TC | GPIO14 | 토글 스위치, INPUT_PULLUP, ON=LOW |
@@ -53,7 +55,6 @@ pio run -e esp32dev -t upload
 | HMI | Regen rotary bit1 | GPIO17 | 4단 로터리 셀렉터 코드 bit1, INPUT_PULLUP, active LOW |
 | HMI | Debug | GPIO27 | 토글 스위치, INPUT_PULLUP, ON=LOW |
 | HMI | GPS Lap Start | GPIO19 | 순간 푸시 버튼, 정상 상태에서 GPS lap start 저장 |
-| HMI | Car Check | GPIO21 | 순간 푸시 버튼, 차량 상태 상세 화면 |
 | HMI | Warning Detail | GPIO32 | 순간 푸시 버튼, warning 상세 화면 토글 |
 | LV monitor | LV voltage ADC | GPIO34 | 12V 라인을 100k/27k 저항분압 후 입력 |
 

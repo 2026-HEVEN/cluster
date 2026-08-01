@@ -15,7 +15,7 @@ constexpr int PIN_TFT_DC   = 25;
 constexpr int PIN_TFT_RST  = 33;
 constexpr int PIN_TFT_SCLK = 18;
 constexpr int PIN_TFT_MOSI = 23;
-constexpr int PIN_TFT_MISO = -1;   // ILI9341 readback is unused.
+constexpr int PIN_TFT_MISO = 35;   // Shared SPI MISO for touch controller readback.
 
 Adafruit_ILI9341 tft(PIN_TFT_CS, PIN_TFT_DC, PIN_TFT_RST);
 }

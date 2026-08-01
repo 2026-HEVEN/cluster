@@ -259,13 +259,12 @@
   "cvpcb": {
     "equivalence_files": []
   },
-  "erc": {},
   "libraries": {
     "pinned_footprint_libs": [],
     "pinned_symbol_libs": []
   },
   "meta": {
-    "filename": "HEVEN_Cluster_RevA.kicad_pro",
+    "filename": "HEVEN_Cluster_RevB(1).kicad_pro",
     "version": 3
   },
   "net_settings": {
@@ -311,13 +310,7 @@
     "bus_aliases": {},
     "legacy_lib_dir": "",
     "legacy_lib_list": [],
-    "top_level_sheets": [
-      {
-        "filename": "HEVEN_Cluster_RevA.kicad_sch",
-        "name": "HEVEN_Cluster_RevA",
-        "uuid": "00000000-0000-0000-0000-000000000000"
-      }
-    ]
+    "top_level_sheets": []
   },
   "sheets": [],
   "text_variables": {},

@@ -5,7 +5,7 @@ on:
     branches:
       - "김민철2"
     paths:
-      - "hardware/HEVEN_Cluster_RevA/**"
+      - "hardware/HEVEN_Cluster_RevB/**"
       - ".github/workflows/kicad-10-check.yml"
   workflow_dispatch:
 
@@ -18,8 +18,8 @@ jobs:
 
     env:
       KICAD_IMAGE: ghcr.io/kicad/kicad:10.0-full
-      PROJECT_DIR: hardware/HEVEN_Cluster_RevA
-      PCB_FILE: hardware/HEVEN_Cluster_RevA/HEVEN_Cluster_RevA.kicad_pcb
+      PROJECT_DIR: hardware/HEVEN_Cluster_RevB
+      PCB_FILE: hardware/HEVEN_Cluster_RevB/HEVEN_Cluster_RevB.kicad_pcb
 
     steps:
       - name: Checkout repository
@@ -110,7 +110,7 @@ jobs:
         if: steps.drc.outcome == 'success'
         run: |
           cd output
-          zip -r HEVEN_Cluster_RevA_Gerber.zip gerbers drill
+          zip -r HEVEN_Cluster_RevB_Gerber.zip gerbers drill
 
       - name: Upload DRC report and manufacturing outputs
         if: always()

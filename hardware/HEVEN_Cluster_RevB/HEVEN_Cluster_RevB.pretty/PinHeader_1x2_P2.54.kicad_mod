@@ -1,0 +1,42 @@
+(footprint "PinHeader_1x2_P2.54"
+	(version 20260206)
+	(generator "pcbnew")
+		(layer "F.Cu")
+		
+		
+		(duplicate_pad_numbers_are_jumpers yes)
+		(property "Reference" "J_GPS"
+			(at 0 -3.2 0)
+			(layer "F.Fab")
+			(hide yes)
+			(uuid "2807beb1-a0f3-42b9-9ec2-ab8ab1214530")
+			(effects
+				(font (size 0.9 0.9) (thickness 0.15))
+			)
+		)
+		(property "Value" "GPS external: GND,TX2"
+			(at 0 3 0)
+			(layer "F.Fab")
+			(hide yes)
+			(uuid "b8c21d74-8098-45d4-9663-516f98b45875")
+			(effects
+				(font (size 0.9 0.9) (thickness 0.15))
+			)
+		)
+		
+		(pad "1" thru_hole rect
+			(at -1.27 0 0)
+			(size 1.8 1.8)
+			(drill 1)
+			(layers "*.Cu" "*.Mask")
+			(net "GND")
+			(uuid "dcc18d2a-ed5e-4080-9e01-2559855e4821"))
+		(pad "2" thru_hole circle
+			(at 1.27 0 0)
+			(size 1.8 1.8)
+			(drill 1)
+			(layers "*.Cu" "*.Mask")
+			(net "GPS_TX_RAW")
+			(uuid "6a48cf7e-dec5-465a-8d3c-88c71d19a794"))
+		(embedded_fonts no)
+	)

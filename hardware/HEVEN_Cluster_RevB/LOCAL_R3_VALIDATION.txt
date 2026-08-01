@@ -1,0 +1,25 @@
+HEVEN Cluster Rev.B Routing R3 - pre-cloud validation
+
+Source report:
+- 144 DRC violations + 2 unconnected items
+- 6 errors, 140 warnings
+- 87 isolated copper warnings
+- 49 missing local footprint library warnings
+
+Applied fixes:
+- H6 moved to (238,85)
+- 5V via at (248.5,68) removed; B.Cu 5V ends at ESP32 PTH pad 19
+- GND zone island_removal_mode changed 1 -> 0 on F.Cu and B.Cu
+- ESP32 pad 14 intentionally changed to no-net; GND pads 20 and 26 remain connected
+- Local HEVEN_Cluster_RevB.pretty library + fp-lib-table added
+- Right-panel silkscreen label moved from y=84 to y=80
+
+Static checks:
+- Main PCB parenthesis balance: 0
+- 13 unique local footprint files generated
+- All footprint file parenthesis balances: 0
+- Redundant 5V via absent
+- Old island_removal_mode 1 absent
+
+Final authority:
+- GitHub Actions KiCad 10 DRC after zone refill

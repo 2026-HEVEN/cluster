@@ -1,0 +1,84 @@
+(footprint "SOIC8_SN65HVD230"
+	(version 20260206)
+	(generator "pcbnew")
+		(layer "B.Cu")
+		
+		
+		(duplicate_pad_numbers_are_jumpers yes)
+		(property "Reference" "U_CAN"
+			(at 0 -3.6 0)
+			(layer "B.Fab")
+			(hide yes)
+			(uuid "030a87c6-9af0-4593-b126-7eacff99f7a7")
+			(effects
+				(font (size 0.9 0.9) (thickness 0.15))
+			)
+		)
+		(property "Value" "SN65HVD230D"
+			(at 0 3 0)
+			(layer "B.Fab")
+			(hide yes)
+			(uuid "ef18d58a-0d9a-4221-842d-cf8b2c619054")
+			(effects
+				(font (size 0.9 0.9) (thickness 0.15))
+			)
+		)
+		
+		
+		(pad "1" smd roundrect
+			(at -2.7 -1.905 0)
+			(size 1.6 0.6)
+			(layers "B.Cu" "B.Paste" "B.Mask")
+			(roundrect_rratio 0.2)
+			(net "CAN_TX_IC")
+			(uuid "eef95d42-a373-476b-bdfe-4f7ecaf1a7f8"))
+		(pad "2" smd roundrect
+			(at -2.7 -0.635 0)
+			(size 1.6 0.6)
+			(layers "B.Cu" "B.Paste" "B.Mask")
+			(roundrect_rratio 0.2)
+			(net "GND")
+			(uuid "88cff08c-47eb-4216-9b68-f14dd5de5fc9"))
+		(pad "3" smd roundrect
+			(at -2.7 0.635 0)
+			(size 1.6 0.6)
+			(layers "B.Cu" "B.Paste" "B.Mask")
+			(roundrect_rratio 0.2)
+			(net "3V3")
+			(uuid "d8c5a45c-f21c-4ec1-8ff9-f2cea3661126"))
+		(pad "4" smd roundrect
+			(at -2.7 1.905 0)
+			(size 1.6 0.6)
+			(layers "B.Cu" "B.Paste" "B.Mask")
+			(roundrect_rratio 0.2)
+			(net "CAN_RX_IC")
+			(uuid "f895540d-2b92-4646-b43d-eb69ef270f0a"))
+		(pad "8" smd roundrect
+			(at 2.7 -1.905 0)
+			(size 1.6 0.6)
+			(layers "B.Cu" "B.Paste" "B.Mask")
+			(roundrect_rratio 0.2)
+			(net "CAN_RS")
+			(uuid "5415ac5b-8b12-4f05-8a91-c7ca5b75fab4"))
+		(pad "7" smd roundrect
+			(at 2.7 -0.635 0)
+			(size 1.6 0.6)
+			(layers "B.Cu" "B.Paste" "B.Mask")
+			(roundrect_rratio 0.2)
+			(net "CAN_H")
+			(uuid "dd67c1d9-e779-43a5-bfad-37e0f4239c0a"))
+		(pad "6" smd roundrect
+			(at 2.7 0.635 0)
+			(size 1.6 0.6)
+			(layers "B.Cu" "B.Paste" "B.Mask")
+			(roundrect_rratio 0.2)
+			(net "CAN_L")
+			(uuid "d0a1fc67-100d-47dd-8fdb-fb861b4cf218"))
+		(pad "5" smd roundrect
+			(at 2.7 1.905 0)
+			(size 1.6 0.6)
+			(layers "B.Cu" "B.Paste" "B.Mask")
+			(roundrect_rratio 0.2)
+			(uuid "01ebc10d-80f6-4bf7-ae37-3dd5bb89dd3a"))
+		(embedded_fonts no)
+	)

@@ -1,0 +1,11 @@
+HEVEN Cluster Rev.B R4 local structural validation
+
+Added explicit GND segments: 2
+Added GND stitching vias: 25
+SW_WARN GND via: 236.00, 47.25 mm
+Via size / drill: 0.90 / 0.40 mm
+Both GND zones retain island_removal_mode 0 (always remove unconnected islands).
+Local footprint table present: True
+Local footprint directory present: True
+
+This is not a replacement for KiCad 10 DRC.

@@ -3,7 +3,7 @@ name: KiCad 10 PCB DRC
 on:
   push:
     branches:
-      - "김민철"
+      - "김민철2"
     paths:
       - "hardware/HEVEN_Cluster_RevA/**"
       - ".github/workflows/kicad-10-check.yml"

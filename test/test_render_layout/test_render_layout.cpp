@@ -122,15 +122,16 @@ void draw_status_detail(FrameBuffer &fb) {
     status_line(fb, y, "CAN L OK R OK", 2);
     status_line(fb, y, "VCU OK HV ON", 2);
     status_line(fb, y, "BMS OK 078% 51V", 2);
+    status_line(fb, y, "LV 13.2V OK", 2);
 
-    y += 4;
-    status_line(fb, y, "LEFT FAULT", 3);
+    y += 3;
+    status_line(fb, y, "LEFT FAULT", 2);
     status_line(fb, y, "MTR 088C HOT", 2);
     status_line(fb, y, "CTRL 074C HOT", 2);
     status_line(fb, y, "VOLT 121.5 OVER", 2);
 
-    y += 5;
-    status_line(fb, y, "RIGHT OK", 3);
+    y += 3;
+    status_line(fb, y, "RIGHT OK", 2);
     status_line(fb, y, "MTR 052C OK", 2);
     status_line(fb, y, "CTRL 048C OK", 2);
     status_line(fb, y, "VOLT 119.8 OK", 2);

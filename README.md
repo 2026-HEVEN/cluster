@@ -57,7 +57,7 @@ pio run -e esp32dev -t upload
 | HMI | Debug | GPIO27 | 토글 스위치, INPUT_PULLUP, ON=LOW |
 | HMI | GPS Lap Start | GPIO19 | 순간 푸시 버튼, 정상 상태에서 GPS lap start 저장 |
 | HMI | Warning Detail | GPIO32 | 순간 푸시 버튼, warning 상세 화면 토글 |
-| LV monitor | LV voltage ADC | GPIO34 | 12V 라인을 100k/27k 저항분압 후 입력 |
+| LV monitor | LV voltage ADC | GPIO34 | 12V 라인을 100k/27k 저항분압 후 입력, Car Check에 LV 전압/LOW/HIGH 표시 |
 
 회생제동 4단 로터리 셀렉터는 `bit1 bit0` 조합으로 `0~3` 단계를 만든다. 두 선 모두 내부 pull-up을 사용하므로 각 코드선은 선택 시 GND로 떨어지는 active-low 배선이다.
 
@@ -67,6 +67,8 @@ pio run -e esp32dev -t upload
 | 1 | HIGH | LOW |
 | 2 | LOW | HIGH |
 | 3 | LOW | LOW |
+
+Car Check의 LV 표시는 `11.0V` 미만이면 `LOW`, `15.0V` 이상이면 `HIGH`, 그 사이는 `OK`로 표시한다. 빨간 warning 화면에는 연결하지 않는 정비용 표시이다.
 
 VESS, 기어, 시동 스위치는 클러스터 패널/PCB에 물리 배치할 수 있지만 Cluster ESP32 GPIO에는 연결하지 않는다. 해당 신호는 VESS 회로 또는 VCU/차량 배선 쪽에서 처리한다.
 ## 어디서 작업하나

@@ -38,6 +38,8 @@ namespace {
     constexpr float LV_ADC_REF_V = 3.3f;
     constexpr float LV_ADC_MAX = 4095.0f;
     constexpr float LV_DIVIDER_SCALE = (100.0f + 27.0f) / 27.0f;
+    constexpr float LV_LOW_THRESHOLD_V = 11.0f;
+    constexpr float LV_HIGH_THRESHOLD_V = 15.0f;
     constexpr uint32_t CAN_STARTUP_GRACE_MS = 3000;
     constexpr uint32_t CONTROLLER_FRAME_TIMEOUT_MS = 300;
     constexpr uint32_t VCU_STATUS_TIMEOUT_MS = 300;
@@ -140,6 +142,12 @@ namespace {
         return "OK";
     }
 
+    const char *lv_voltage_label(float voltage) {
+        if (voltage < LV_LOW_THRESHOLD_V) return "LOW";
+        if (voltage >= LV_HIGH_THRESHOLD_V) return "HIGH";
+        return "OK";
+    }
+
     const uint8_t *status_glyph(char c) {
         static const uint8_t glyph_b[7] = {0x1E,0x11,0x11,0x1E,0x11,0x11,0x1E};
         static const uint8_t glyph_s[7] = {0x0F,0x10,0x10,0x0E,0x01,0x01,0x1E};
@@ -185,7 +193,7 @@ namespace {
         char buf[48];
 
         std::snprintf(buf, sizeof(buf), "%s %s", side, fault_label(err1, err2, err3));
-        status_line(y, buf, 3);
+        status_line(y, buf, 2);
 
         std::snprintf(buf, sizeof(buf), "MTR %03dC %s", motor_temp, motor_heat_label(err1));
         status_line(y, buf, 2);
@@ -229,11 +237,27 @@ namespace {
         }
         status_line(y, buf, 2);
 
-        y += 4;
+        if (state.lv_voltage_valid) {
+            const char *lv_label = lv_voltage_label(state.lv_voltage);
+            const int lv_whole = (int)state.lv_voltage;
+            const int lv_tenths = ((int)(state.lv_voltage * 10.0f)) % 10;
+            if (lv_label[0] == 'L') {
+                std::snprintf(buf, sizeof(buf), "LOW LV %02d.%01dV", lv_whole, lv_tenths);
+            } else if (lv_label[0] == 'H') {
+                std::snprintf(buf, sizeof(buf), "LV %02d.%01dV HIGH", lv_whole, lv_tenths);
+            } else {
+                std::snprintf(buf, sizeof(buf), "LV %02d.%01dV OK", lv_whole, lv_tenths);
+            }
+        } else {
+            std::snprintf(buf, sizeof(buf), "LV WAIT ---");
+        }
+        status_line(y, buf, 2);
+
+        y += 3;
         draw_side_status(y, "LEFT", state.motor_temp, state.controller_temp,
                          state.bus_voltage, state.error1, state.error2, state.error3);
 
-        y += 5;
+        y += 3;
         draw_side_status(y, "RIGHT", state.motor_temp_r, state.controller_temp_r,
                          state.bus_voltage_r, state.error1_r, state.error2_r, state.error3_r);
     }

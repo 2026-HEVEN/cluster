@@ -12,8 +12,10 @@ constexpr int PIN_GPS_RX = 22;      // GPS TX -> ESP32 GPIO22
 constexpr int PIN_GPS_TX = -1;      // receive-only
 constexpr uint32_t GPS_BAUD = 38400;
 constexpr int GPS_LINE_MAX = 96;
-constexpr float START_RADIUS_M = 2.0f;
+constexpr float LAP_TRIGGER_RADIUS_M = 0.75f;
 constexpr float REARM_RADIUS_M = 20.0f;
+constexpr float DEPART_SPEED_KPH = 0.5f;
+constexpr uint32_t DEPART_CONFIRM_MS = 150;
 constexpr uint32_t MIN_LAP_MS = 10000;
 constexpr uint32_t GPS_FIX_TIMEOUT_MS = 3000;
 
@@ -32,6 +34,7 @@ double latest_lat = 0.0;
 double latest_lon = 0.0;
 uint32_t last_cross_ms = 0;
 uint32_t last_fix_ms = 0;
+uint32_t departure_speed_since_ms = 0;
 
 int hex_value(char c) {
     if (c >= '0' && c <= '9') return c - '0';
@@ -64,6 +67,29 @@ double deg_min_to_decimal(const char *value, char hemi) {
     return decimal;
 }
 
+void update_departure_timer(uint32_t now) {
+    if (!have_start || !waiting_departure) return;
+
+    state.current_lap_ms = 0;
+    if (!latest_fix || state.vehicle_speed_kph <= DEPART_SPEED_KPH) {
+        departure_speed_since_ms = 0;
+        return;
+    }
+
+    if (departure_speed_since_ms == 0) {
+        departure_speed_since_ms = now;
+        return;
+    }
+
+    if (now - departure_speed_since_ms < DEPART_CONFIRM_MS) return;
+
+    waiting_departure = false;
+    timing_active = true;
+    lap_armed = false;
+    last_cross_ms = departure_speed_since_ms;
+    departure_speed_since_ms = 0;
+}
+
 float distance_m(double lat1, double lon1, double lat2, double lon2) {
     constexpr double R = 6371000.0;
     constexpr double DEG2RAD_LOCAL = 0.017453292519943295;
@@ -87,18 +113,12 @@ void update_lap(double lat, double lon) {
         return;
     }
 
-    const float dist = distance_m(start_lat, start_lon, lat, lon);
     if (waiting_departure) {
-        state.current_lap_ms = 0;
-        if (dist >= START_RADIUS_M) {
-            waiting_departure = false;
-            timing_active = true;
-            lap_armed = false;
-            last_cross_ms = now;
-        }
+        update_departure_timer(now);
         return;
     }
 
+    const float dist = distance_m(start_lat, start_lon, lat, lon);
     if (!timing_active || last_cross_ms == 0) return;
 
     state.current_lap_ms = now - last_cross_ms;
@@ -107,7 +127,7 @@ void update_lap(double lat, double lon) {
         lap_armed = true;
     }
 
-    if (lap_armed && dist <= START_RADIUS_M && now - last_cross_ms >= MIN_LAP_MS) {
+    if (lap_armed && dist <= LAP_TRIGGER_RADIUS_M && now - last_cross_ms >= MIN_LAP_MS) {
         const uint32_t lap_ms = now - last_cross_ms;
         const uint8_t completed_lap = state.lap_count < 99 ? (uint8_t)(state.lap_count + 1) : 99;
         state.last_lap_ms = lap_ms;
@@ -184,6 +204,8 @@ void poll() {
         state.gps_fix_ok = false;
         latest_fix = false;
     }
+
+    update_departure_timer(millis());
 }
 
 bool start_at_current_fix() {
@@ -196,6 +218,7 @@ bool start_at_current_fix() {
     waiting_departure = true;
     timing_active = false;
     last_cross_ms = 0;
+    departure_speed_since_ms = 0;
     state.lap_count = 0;
     state.current_lap_ms = 0;
     state.last_lap_ms = 0;
@@ -210,6 +233,7 @@ void stop() {
     waiting_departure = false;
     timing_active = false;
     last_cross_ms = 0;
+    departure_speed_since_ms = 0;
     state.current_lap_ms = 0;
 }
 }

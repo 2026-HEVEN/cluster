@@ -33,6 +33,7 @@ pio run -e esp32dev -t upload
 
 > ℹ️ 모터컨트롤러 값은 MCU→VCU 피드백 프레임을 Cluster가 같은 CAN 버스에서 수신합니다. BMS SOC는 `LWS-1608` BLE BMS에 Cluster ESP32가 직접 연결해 표시용 telemetry로만 읽습니다.
 > ℹ️ 계기판 속도 표시는 VCU가 송신하는 휠스피드 프레임 `0x1802C0D0`을 우선 사용합니다. FL/FR/RL/RR RPM을 km/h로 변환하고, 최솟값/최댓값을 제외한 가운데 두 바퀴 평균을 대표 속도로 표시합니다.
+> ℹ️ GPS Lap Start는 현재 GNSS fix 위치를 출발점으로 저장합니다. 이후 휠스피드 기반 차량속도 `0.5 km/h` 초과가 `150ms` 이상 지속되면 랩타이머를 시작하고, 다시 출발점 반경 `0.75m` 안으로 들어오면 랩을 갱신합니다.
 
 
 ## 현재 하드웨어 핀맵

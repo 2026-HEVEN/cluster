@@ -43,7 +43,7 @@ namespace {
     constexpr uint32_t CAN_STARTUP_GRACE_MS = 3000;
     constexpr uint32_t CONTROLLER_FRAME_TIMEOUT_MS = 300;
     constexpr uint32_t VCU_STATUS_TIMEOUT_MS = 300;
-    constexpr uint32_t WSS_FRAME_TIMEOUT_MS = 300;
+    constexpr uint32_t VEHICLE_SPEED_TIMEOUT_MS = 300;
     FrameBuffer fb;
     bool warning_detail_page = false;
     bool status_page = false;
@@ -369,8 +369,9 @@ namespace {
             }
         }
 
-        if (frame_stale(state.wheel_speeds_last_rx_ms, now, WSS_FRAME_TIMEOUT_MS)) {
+        if (frame_stale(state.vehicle_speed_last_rx_ms, now, VEHICLE_SPEED_TIMEOUT_MS)) {
             state.vehicle_speed_kph = 0.0f;
+            state.vehicle_speed_valid = false;
         }
 
         if (state.gear_from_can && vcu_status_stale(now)) {

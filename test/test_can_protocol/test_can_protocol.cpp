@@ -7,7 +7,7 @@ void test_torque_offset(void) { TEST_ASSERT_EQUAL_UINT16(32000, torque_to_raw(0.
 // Cluster additions
 void test_cluster_cmd_id(void) { TEST_ASSERT_EQUAL_HEX32(0x1801D0C0, CAN_ID_CLUSTER_CMD); }
 void test_vcu_cluster_status_id(void) { TEST_ASSERT_EQUAL_HEX32(0x1801C0D0, CAN_ID_VCU_CLUSTER_STATUS); }
-void test_vcu_wheel_speed_id(void) { TEST_ASSERT_EQUAL_HEX32(0x1802C0D0, CAN_ID_VCU_WHEEL_SPEEDS); }
+void test_vcu_vehicle_speed_id(void) { TEST_ASSERT_EQUAL_HEX32(0x1803C0D0, CAN_ID_VCU_VEHICLE_SPEED); }
 void test_cluster_bms_ids(void) {
     TEST_ASSERT_EQUAL_HEX32(0x18F3FFC0, CAN_ID_CLUSTER_BMS_STATUS);
     TEST_ASSERT_EQUAL_HEX32(0x18F4FFC0, CAN_ID_CLUSTER_BMS_DETAIL);
@@ -96,7 +96,7 @@ int main(int, char **) {
     RUN_TEST(test_torque_offset);
     RUN_TEST(test_cluster_cmd_id);
     RUN_TEST(test_vcu_cluster_status_id);
-    RUN_TEST(test_vcu_wheel_speed_id);
+    RUN_TEST(test_vcu_vehicle_speed_id);
     RUN_TEST(test_cluster_bms_ids);
     RUN_TEST(test_feedback_ids);
     RUN_TEST(test_feedback_ids_lr_distinct);

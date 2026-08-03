@@ -1,3 +1,0 @@
-(fp_lib_table
-  (lib (name "HEVEN_Cluster_RevB")(type "KiCad")(uri "${KIPRJMOD}/HEVEN_Cluster_RevB.pretty")(options "")(descr "HEVEN Cluster RevB local footprints"))
-)

@@ -8,7 +8,7 @@
 
 namespace gps_laptimer {
 namespace {
-constexpr int PIN_GPS_RX = 22;      // GPS TX -> ESP32 GPIO22
+constexpr int PIN_GPS_RX = 35;      // GPS TX -> ESP32 GPIO35
 constexpr int PIN_GPS_TX = -1;      // receive-only
 constexpr uint32_t GPS_BAUD = 38400;
 constexpr int GPS_LINE_MAX = 96;

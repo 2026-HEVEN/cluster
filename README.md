@@ -40,28 +40,28 @@ pio run -e esp32dev -t upload
 
 | 구분 | 기능 | ESP32 GPIO | 연결/동작 |
 |------|------|------------|-----------|
-| CAN | TXD | GPIO5 | CAN 트랜시버 TXD |
-| CAN | RXD | GPIO4 | CAN 트랜시버 RXD |
-| LCD ILI9341 | CS | GPIO26 | LCD controller CS, SD_CS 아님 |
-| LCD ILI9341 | DC | GPIO25 | D/C, A0 |
-| LCD ILI9341 | RST | GPIO33 | LCD reset |
-| LCD ILI9341 | SCK | GPIO18 | SPI clock |
-| LCD ILI9341 | MOSI | GPIO23 | ESP32 -> LCD |
-| LCD / Touch SPI | MISO / T_DO | GPIO35 | Touch controller -> ESP32, LCD SDO readback optional |
-| LCD Touch XPT2046 | T_CS | GPIO21 | Touch chip select, 터치 시 Car Check 화면 토글 |
-| GPS ZED-F9P | RX | GPIO22 | GNSS UART TX -> ESP32, 38400 baud NMEA RMC |
-| HMI | Paddock | GPIO13 | 토글 스위치, INPUT_PULLUP, ON=LOW |
-| HMI | TC | GPIO14 | 토글 스위치, INPUT_PULLUP, ON=LOW |
-| HMI | Regen rotary bit0 | GPIO16 | 4단 로터리 셀렉터 코드 bit0, INPUT_PULLUP, active LOW |
-| HMI | Regen rotary bit1 | GPIO17 | 4단 로터리 셀렉터 코드 bit1, INPUT_PULLUP, active LOW |
-| HMI | Debug | GPIO27 | 토글 스위치, INPUT_PULLUP, ON=LOW |
-| HMI | GPS Lap Start | GPIO19 | 순간 푸시 버튼, 정상 상태에서 GPS lap start 저장 |
-| HMI | Warning Detail | GPIO32 | 순간 푸시 버튼, warning 상세 화면 토글 |
+| CAN | TXD | GPIO18 | CAN 트랜시버 TXD |
+| CAN | RXD | GPIO17 | CAN 트랜시버 RXD |
+| LCD ILI9341 | CS | GPIO4 | LCD controller CS, SD_CS 아님 |
+| LCD ILI9341 | DC | GPIO5 | D/C, A0. GPIO5는 strapping pin이라 외부 pull-up/down 금지 |
+| LCD ILI9341 | RST | GPIO16 | LCD reset |
+| LCD ILI9341 | SCK | GPIO21 | SPI clock |
+| LCD ILI9341 | MOSI | GPIO19 | ESP32 -> LCD/Touch |
+| LCD / Touch SPI | MISO / T_DO | GPIO22 | Touch controller -> ESP32, LCD SDO readback optional |
+| LCD Touch XPT2046 | T_CS | GPIO23 | Touch chip select, 터치 시 Car Check 화면 토글 |
+| GPS ZED-F9P | RX | GPIO35 | GNSS UART TX -> ESP32, 38400 baud NMEA RMC. GPS 탈착 가능 구조면 10k pull-up to 3.3V 권장 |
+| HMI | Paddock | GPIO33 | 토글 스위치, INPUT_PULLUP, ON=LOW |
+| HMI | TC | GPIO25 | 토글 스위치, INPUT_PULLUP, ON=LOW |
+| HMI | Regen rotary bit0 | GPIO27 | 4단 로터리 셀렉터 코드 bit0, INPUT_PULLUP, active LOW |
+| HMI | Regen rotary bit1 | GPIO14 | 4단 로터리 셀렉터 코드 bit1, INPUT_PULLUP, active LOW |
+| HMI | Debug | GPIO26 | 토글 스위치, INPUT_PULLUP, ON=LOW |
+| HMI | GPS Lap Start | GPIO32 | 순간 푸시 버튼, 정상 상태에서 GPS lap start 저장 |
+| HMI | Warning Detail | GPIO13 | 순간 푸시 버튼, warning 상세 화면 토글 |
 | LV monitor | LV voltage ADC | GPIO34 | 12V 라인을 100k/27k 저항분압 후 입력, Car Check에 LV 전압/LOW/HIGH 표시 |
 
 회생제동 4단 로터리 셀렉터는 `bit1 bit0` 조합으로 `0~3` 단계를 만든다. 두 선 모두 내부 pull-up을 사용하므로 각 코드선은 선택 시 GND로 떨어지는 active-low 배선이다.
 
-| Regen level | bit1(GPIO17) | bit0(GPIO16) |
+| Regen level | bit1(GPIO14) | bit0(GPIO27) |
 |-------------|--------------|--------------|
 | 0 | HIGH | HIGH |
 | 1 | HIGH | LOW |

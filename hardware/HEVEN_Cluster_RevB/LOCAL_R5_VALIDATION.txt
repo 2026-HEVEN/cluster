@@ -1,9 +1,0 @@
-HEVEN Cluster Rev.B R5 local validation
-
-PCB parenthesis balance: PASS (depth=0, minimum=0)
-C_0805_R180 instances: 2
-New explicit GND segments: 12
-New GND stitching vias: 6
-Board outline and non-GND routing: unchanged
-
-This is a syntax/targeted geometry check, not a KiCad DRC result.

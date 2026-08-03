@@ -13,7 +13,7 @@
 namespace can_bus {
 
 void begin() {
-    twai_general_config_t g = TWAI_GENERAL_CONFIG_DEFAULT(GPIO_NUM_5, GPIO_NUM_4, TWAI_MODE_NORMAL);
+    twai_general_config_t g = TWAI_GENERAL_CONFIG_DEFAULT(GPIO_NUM_18, GPIO_NUM_17, TWAI_MODE_NORMAL);
     twai_timing_config_t  t = TWAI_TIMING_CONFIG_250KBITS();
     twai_filter_config_t  f = TWAI_FILTER_CONFIG_ACCEPT_ALL();
     twai_driver_install(&g, &t, &f);

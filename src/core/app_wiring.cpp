@@ -26,14 +26,14 @@ ClusterState state;
 namespace {
     // Input pins (direct GPIO; if pin count runs short, an io_expander can be
     // reintroduced HERE only, without touching any module).
-    constexpr int PIN_PADDOCK = 13;
-    constexpr int PIN_TC = 14;
-    constexpr int PIN_REGEN_ROTARY_BIT0 = 16; // 4-position rotary selector code bit0
-    constexpr int PIN_REGEN_ROTARY_BIT1 = 17; // 4-position rotary selector code bit1
-    constexpr int PIN_DEBUG = 27;
-    constexpr int PIN_GPS_LAP_START = 19;     // set GPS lap start
-    constexpr int PIN_TOUCH_CS = 21;        // XPT2046 touch chip select; touch toggles vehicle status
-    constexpr int PIN_WARNING_DETAIL = 32; // LOW toggles warning detail page
+    constexpr int PIN_PADDOCK = 33;
+    constexpr int PIN_TC = 25;
+    constexpr int PIN_REGEN_ROTARY_BIT0 = 27; // 4-position rotary selector code bit0
+    constexpr int PIN_REGEN_ROTARY_BIT1 = 14; // 4-position rotary selector code bit1
+    constexpr int PIN_DEBUG = 26;
+    constexpr int PIN_GPS_LAP_START = 32;     // set GPS lap start
+    constexpr int PIN_TOUCH_CS = 23;        // XPT2046 touch chip select; touch toggles vehicle status
+    constexpr int PIN_WARNING_DETAIL = 13; // LOW toggles warning detail page
     constexpr int PIN_LV_VOLTAGE = 34;   // ADC1, 100k/27k divider from LV 12V
     constexpr float LV_ADC_REF_V = 3.3f;
     constexpr float LV_ADC_MAX = 4095.0f;

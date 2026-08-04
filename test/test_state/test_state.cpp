@@ -20,8 +20,6 @@ void test_state_defaults_safe(void) {
     TEST_ASSERT_FALSE(s.tc_enabled);
     TEST_ASSERT_EQUAL_UINT8(0, s.regen_level);
     TEST_ASSERT_FALSE(s.debug_enabled);
-    TEST_ASSERT_FALSE(s.lv_voltage_valid);
-    TEST_ASSERT_EQUAL_FLOAT(0.0f, s.lv_voltage);
     TEST_ASSERT_FALSE(s.gps_fix_ok);
     TEST_ASSERT_FALSE(s.bms_ble_connected);
     TEST_ASSERT_EQUAL_UINT32(0, s.bms_last_rx_ms);

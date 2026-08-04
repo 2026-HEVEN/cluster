@@ -53,8 +53,7 @@ struct ClusterState {
     uint8_t  regen_level = 0;       // 0..3
     bool     debug_enabled = false;
     bool     reset_req  = false;
-    bool     lv_voltage_valid = false;
-    float    lv_voltage = 0.0f;     // 12V LV line, measured through D34 divider
+
 
     // BMS telemetry (display-only). BMS data may arrive directly over BLE
     // or through a future VCU summary frame; it must not be used for safety

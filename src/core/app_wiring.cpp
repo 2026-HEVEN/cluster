@@ -34,12 +34,6 @@ namespace {
     constexpr int PIN_GPS_LAP_START = 32;     // set GPS lap start
     constexpr int PIN_TOUCH_CS = 23;        // XPT2046 touch chip select; touch toggles vehicle status
     constexpr int PIN_WARNING_DETAIL = 13; // LOW toggles warning detail page
-    constexpr int PIN_LV_VOLTAGE = 34;   // ADC1, 100k/27k divider from LV 12V
-    constexpr float LV_ADC_REF_V = 3.3f;
-    constexpr float LV_ADC_MAX = 4095.0f;
-    constexpr float LV_DIVIDER_SCALE = (100.0f + 27.0f) / 27.0f;
-    constexpr float LV_LOW_THRESHOLD_V = 11.0f;
-    constexpr float LV_HIGH_THRESHOLD_V = 15.0f;
     constexpr uint32_t CAN_STARTUP_GRACE_MS = 3000;
     constexpr uint32_t CONTROLLER_FRAME_TIMEOUT_MS = 300;
     constexpr uint32_t VCU_STATUS_TIMEOUT_MS = 300;
@@ -142,12 +136,6 @@ namespace {
         return "OK";
     }
 
-    const char *lv_voltage_label(float voltage) {
-        if (voltage < LV_LOW_THRESHOLD_V) return "LOW";
-        if (voltage >= LV_HIGH_THRESHOLD_V) return "HIGH";
-        return "OK";
-    }
-
     const uint8_t *status_glyph(char c) {
         static const uint8_t glyph_b[7] = {0x1E,0x11,0x11,0x1E,0x11,0x11,0x1E};
         static const uint8_t glyph_s[7] = {0x0F,0x10,0x10,0x0E,0x01,0x01,0x1E};
@@ -234,22 +222,6 @@ namespace {
             std::snprintf(buf, sizeof(buf), "BMS OK %03d%% %02dV", soc_pct, pack_v);
         } else {
             std::snprintf(buf, sizeof(buf), "BMS WAIT ---");
-        }
-        status_line(y, buf, 2);
-
-        if (state.lv_voltage_valid) {
-            const char *lv_label = lv_voltage_label(state.lv_voltage);
-            const int lv_whole = (int)state.lv_voltage;
-            const int lv_tenths = ((int)(state.lv_voltage * 10.0f)) % 10;
-            if (lv_label[0] == 'L') {
-                std::snprintf(buf, sizeof(buf), "LOW LV %02d.%01dV", lv_whole, lv_tenths);
-            } else if (lv_label[0] == 'H') {
-                std::snprintf(buf, sizeof(buf), "LV %02d.%01dV HIGH", lv_whole, lv_tenths);
-            } else {
-                std::snprintf(buf, sizeof(buf), "LV %02d.%01dV OK", lv_whole, lv_tenths);
-            }
-        } else {
-            std::snprintf(buf, sizeof(buf), "LV WAIT ---");
         }
         status_line(y, buf, 2);
 
@@ -409,12 +381,6 @@ static void can_rx_update() { can_bus::poll_rx(); }
 static void gps_update() { gps_laptimer::poll(); }
 static void bms_update() { bms_ble::poll(); }
 static void bms_can_tx_update() { can_bus::send_bms_status(); }
-static void lv_voltage_update() {
-    const int raw = analogRead(PIN_LV_VOLTAGE);
-    state.lv_voltage = ((float)raw * LV_ADC_REF_V / LV_ADC_MAX) * LV_DIVIDER_SCALE;
-    state.lv_voltage_valid = true;
-}
-
 static void display_update() {
     fb.clear();
     const bool warn = warning_active();
@@ -441,7 +407,6 @@ Task g_tasks[] = {
     { gps_update,     20, 0 },   // 50 Hz UART drain
     { bms_update,    100, 0 },   // 10 Hz BLE BMS state machine
     { bms_can_tx_update, 100, 0 }, // 10 Hz BMS telemetry to logger/TMA-1
-    { lv_voltage_update, 100, 0 }, // 10 Hz LV 12V monitor
     { hmi_update,     20, 0 },   // 50 Hz
     { display_update, 66, 0 },   // ~15 Hz
 };
@@ -455,7 +420,6 @@ void modules_init() {
     pinMode(PIN_DEBUG, INPUT_PULLUP);
     pinMode(PIN_GPS_LAP_START, INPUT_PULLUP);
     pinMode(PIN_WARNING_DETAIL, INPUT_PULLUP);
-    analogSetPinAttenuation(PIN_LV_VOLTAGE, ADC_11db);
     can_bus::begin();
     gps_laptimer::begin();
     bms_ble::begin();

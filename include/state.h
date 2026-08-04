@@ -50,7 +50,7 @@ struct ClusterState {
     // HMI outputs (sent to VCU)
     bool     paddock = false;
     bool     tc_enabled = false;
-    uint8_t  regen_level = 0;       // 0..3
+    bool     regen_auto_enabled = false;
     bool     debug_enabled = false;
     bool     reset_req  = false;
 

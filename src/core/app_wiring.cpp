@@ -28,8 +28,7 @@ namespace {
     // reintroduced HERE only, without touching any module).
     constexpr int PIN_PADDOCK = 33;
     constexpr int PIN_TC = 25;
-    constexpr int PIN_REGEN_ROTARY_BIT0 = 27; // 4-position rotary selector code bit0
-    constexpr int PIN_REGEN_ROTARY_BIT1 = 14; // 4-position rotary selector code bit1
+    constexpr int PIN_REGEN_AUTO = 27; // regen auto toggle; ON=LOW, OFF=request regen disabled
     constexpr int PIN_DEBUG = 26;
     constexpr int PIN_GPS_LAP_START = 32;     // set GPS lap start
     constexpr int PIN_TOUCH_CS = 23;        // XPT2046 touch chip select; touch toggles vehicle status
@@ -269,10 +268,8 @@ namespace {
         for (int i = 0; i < count; ++i) warning_line(y, labels[i], scale, step);
     }
 
-    uint8_t read_regen_rotary_level() {
-        const uint8_t bit0 = digitalRead(PIN_REGEN_ROTARY_BIT0) == LOW ? 0x01 : 0x00;
-        const uint8_t bit1 = digitalRead(PIN_REGEN_ROTARY_BIT1) == LOW ? 0x02 : 0x00;
-        return bit0 | bit1;
+    bool read_regen_auto_enabled() {
+        return digitalRead(PIN_REGEN_AUTO) == LOW;
     }
 
     void status_touch_update() {
@@ -363,7 +360,7 @@ static void hmi_update() {
     HmiSwitches sw;
     sw.paddock       = digitalRead(PIN_PADDOCK) == LOW;
     sw.tc_enabled    = digitalRead(PIN_TC) == LOW;
-    sw.regen_level   = read_regen_rotary_level();
+    sw.regen_auto_enabled = read_regen_auto_enabled();
     sw.debug_enabled = digitalRead(PIN_DEBUG) == LOW;
     ClusterCommand cmd = hmi_compute(sw);
     if (!state.gear_from_can) {
@@ -371,7 +368,7 @@ static void hmi_update() {
     }
     state.paddock = cmd.paddock;
     state.tc_enabled = cmd.tc_enabled;
-    state.regen_level = cmd.regen_level;
+    state.regen_auto_enabled = cmd.regen_auto_enabled;
     state.debug_enabled = cmd.debug_enabled;
     state.reset_req  = false;
     can_bus::send_command(cmd);
@@ -415,8 +412,7 @@ const int G_TASK_COUNT = sizeof(g_tasks) / sizeof(g_tasks[0]);
 void modules_init() {
     pinMode(PIN_PADDOCK, INPUT_PULLUP);
     pinMode(PIN_TC, INPUT_PULLUP);
-    pinMode(PIN_REGEN_ROTARY_BIT0, INPUT_PULLUP);
-    pinMode(PIN_REGEN_ROTARY_BIT1, INPUT_PULLUP);
+    pinMode(PIN_REGEN_AUTO, INPUT_PULLUP);
     pinMode(PIN_DEBUG, INPUT_PULLUP);
     pinMode(PIN_GPS_LAP_START, INPUT_PULLUP);
     pinMode(PIN_WARNING_DETAIL, INPUT_PULLUP);

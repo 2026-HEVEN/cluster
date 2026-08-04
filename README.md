@@ -52,20 +52,14 @@ pio run -e esp32dev -t upload
 | GPS ZED-F9P | RX | GPIO35 | GNSS UART TX -> ESP32, 38400 baud NMEA RMC. GPS 탈착 가능 구조면 10k pull-up to 3.3V 권장 |
 | HMI | Paddock | GPIO33 | 토글 스위치, INPUT_PULLUP, ON=LOW |
 | HMI | TC | GPIO25 | 토글 스위치, INPUT_PULLUP, ON=LOW |
-| HMI | Regen rotary bit0 | GPIO27 | 4단 로터리 셀렉터 코드 bit0, INPUT_PULLUP, active LOW |
-| HMI | Regen rotary bit1 | GPIO14 | 4단 로터리 셀렉터 코드 bit1, INPUT_PULLUP, active LOW |
+| HMI | Regen Auto | GPIO27 | 토글 스위치, INPUT_PULLUP, ON=LOW: VCU 자동 회생 허용, OFF=회생제동 OFF 요청 |
 | HMI | Debug | GPIO26 | 토글 스위치, INPUT_PULLUP, ON=LOW |
 | HMI | GPS Lap Start | GPIO32 | 순간 푸시 버튼, 정상 상태에서 GPS lap start 저장 |
 | HMI | Warning Detail | GPIO13 | 순간 푸시 버튼, warning 상세 화면 토글 |
 
-회생제동 4단 로터리 셀렉터는 `bit1 bit0` 조합으로 `0~3` 단계를 만든다. 두 선 모두 내부 pull-up을 사용하므로 각 코드선은 선택 시 GND로 떨어지는 active-low 배선이다.
+회생제동 입력은 기존 4단 로터리 셀렉터에서 `Regen Auto` 토글 1개로 변경했다. GPIO27 토글이 ON(LOW)이면 VCU 자동 회생제동 허용을 요청하고, OFF(HIGH)이면 회생제동 OFF를 요청한다. 실제 회생 가능 여부와 전류 제한은 VCU가 배터리 전압/SOC/고장 상태를 기준으로 최종 판단한다.
 
-| Regen level | bit1(GPIO14) | bit0(GPIO27) |
-|-------------|--------------|--------------|
-| 0 | HIGH | HIGH |
-| 1 | HIGH | LOW |
-| 2 | LOW | HIGH |
-| 3 | LOW | LOW |
+GPIO14는 더 이상 회생제동 입력으로 사용하지 않으며 현재 spare GPIO로 남긴다.
 
 GPIO34는 현재 펌웨어에서 사용하지 않는다. LV 12V 전압 측정용 저항분압 회로도 PCB에 넣지 않는다.
 

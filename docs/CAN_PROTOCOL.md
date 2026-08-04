@@ -73,7 +73,7 @@
 | MCU → VCU | 피드백 Part II (온도/상태/에러) | `0x1802D0EF` | `0x1802D0F0` | 50ms | 6 |
 | MCU → METER | 계기 메시지 I | `0x180117EF` | `0x180117F0` | 100ms | 6 |
 | MCU → METER | 계기 메시지 II | `0x180217EF` | `0x180217F0` | 100ms | 6 |
-| Cluster → VCU | 커맨드 (패독/TC/회생/디버그) | `0x1801D0C0` (신규) | — | 100ms | 6 |
+| Cluster → VCU | 커맨드 (패독/TC/회생 Auto/디버그) | `0x1801D0C0` (신규) | — | ~20ms | 6 |
 | VCU → Cluster/TMA-1 | 단일 차량속도 | `0x1803C0D0` (신규) | — | 50ms | 6 |
 | Cluster → TMA-1/logger | BMS 상태 요약 | `0x18F3FFC0` (신규) | — | 100ms | 6 |
 | Cluster → TMA-1/logger | BMS 상세 요약 | `0x18F4FFC0` (신규) | — | 100ms | 6 |
@@ -155,9 +155,9 @@
 | 6 | ERROR3 (5.4 Byte5와 동일) | — |
 | 7 | bit7-4: Life signal | 0~0xFF |
 
-### 5.7 Cluster → VCU : 커맨드  `0x1801D0C0` (신규 할당) · 100ms
+### 5.7 Cluster → VCU : 커맨드  `0x1801D0C0` (신규 할당) · ~20ms
 
-> 계기판 config 입력(패독·TC·4단 회생제동 로터리·디버그)을 VCU에 전달. **EZkontrol 표준이 아닌 HEVEN 자체 정의.**
+> 계기판 config 입력(패독·TC·회생제동 Auto 토글·디버그)을 VCU에 전달. **EZkontrol 표준이 아닌 HEVEN 자체 정의.**
 > 기어 스위치는 Cluster ESP32에 직접 연결하지 않고 VCU 쪽 ADC/pass-through 회로에서 읽는다.
 > PF=0x01, PS=0xD0(VCU), SA=0xC0(Cluster). MCU→VCU(0x1801D0EF)와 SA로 구분되어 충돌 없음.
 > 인코딩 구현: Cluster 펌웨어 `encode_cluster_command()`. 아래 레이아웃과 일치.
@@ -165,11 +165,12 @@
 | 바이트 | 항목 | 의미 |
 |--------|------|------|
 | 0 | Reserved | 0 |
-| 1 | Config flags | bit0: TC enabled, bit2-1: Regen rotary level(0~3), bit3: Debug enabled, bit7-4: reserved(0) |
+| 1 | Config flags | bit0: TC enabled, bit1: Regen auto enabled, bit2: reserved(0), bit3: Debug enabled, bit7-4: reserved(0) |
 | 2 | Flags | bit0: Paddock request, bit7-1: reserved(0) |
 | 3~7 | 예약 | 0 |
 
 > ⚠️ 패독은 **요청 신호**일 뿐. VCU가 토크/속도를 상한 이하로 클램프하고 CAN 끊김 시 fail-safe(제한 유지)를 결정해야 함.
+> ⚠️ 회생제동 토글도 **요청 신호**다. bit1=1이면 VCU 자동 회생제동 허용, bit1=0이면 회생제동 OFF 요청으로 해석한다. 실제 회생 전류와 차단 여부는 VCU가 배터리 전압/SOC/BMS fault/속도 조건을 기준으로 최종 제한해야 한다.
 > VESS 스위칭은 Cluster GPIO 입력과 이 CAN 커맨드에서 제외한다. VESS 신호 경로/스위칭은 별도 하드웨어 또는 VCU 쪽 계약으로 관리한다.
 
 ### 5.8 VCU → Cluster : 표시 상태  `0x1801C0D0` (HEVEN 정의) · 50~100ms 권장

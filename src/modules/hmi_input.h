@@ -7,7 +7,7 @@
 struct HmiSwitches {
     bool     paddock;       // paddock-mode switch
     bool     tc_enabled;    // traction control / torque vectoring switch
-    uint8_t  regen_level;   // 0..3 from the 4-position regen rotary selector
+    bool     regen_auto_enabled; // regen auto toggle; false=request regen off
     bool     debug_enabled; // debug/logging switch
 };
 

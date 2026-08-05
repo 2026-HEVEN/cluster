@@ -50,7 +50,7 @@ pio run -e esp32dev -t upload
 | LCD / Touch SPI | MISO / T_DO | GPIO22 | Touch controller -> ESP32, LCD SDO readback optional |
 | LCD Touch XPT2046 | T_CS | GPIO23 | Touch chip select. 오른쪽 터치=다음 페이지, 왼쪽 터치=이전 페이지 |
 | GPS ZED-F9P | RX | GPIO35 | ZED-F9P TX2 -> ESP32, 460800 baud NMEA/UBX 수신 |
-| GPS ZED-F9P | TX | GPIO15 | ESP32 -> ZED-F9P RX2, NTRIP RTCM3 보정 데이터 송신 |
+| GPS ZED-F9P | TX | GPIO14 | ESP32 -> ZED-F9P RX2, NTRIP RTCM3 보정 데이터 송신 |
 | HMI | Paddock | GPIO33 | 토글 스위치, INPUT_PULLUP, ON=LOW |
 | HMI | TC | GPIO25 | 토글 스위치, INPUT_PULLUP, ON=LOW |
 | HMI | Regen Auto | GPIO27 | 토글 스위치, INPUT_PULLUP, ON=LOW: VCU 자동 회생 허용, OFF=회생제동 OFF 요청 |
@@ -60,11 +60,11 @@ pio run -e esp32dev -t upload
 
 GPS TX2는 PCB에서 분기해 Cluster ESP32 `GPIO35`와 TMA-1 `GPS_RX`에 동시에 넣을 수 있다. TMA-1 `GPS_TX`는 ZED-F9P RX2에 연결하지 않는다.
 
-RTK 사용 시 Cluster ESP32가 Wi-Fi로 NTRIP caster에 접속하고, 수신한 RTCM3 바이트를 가공 없이 `GPIO15` UART TX로 ZED-F9P RX2에 전달한다. 실제 Wi-Fi/NTRIP 계정정보는 `include/ntrip_secrets.h`에 넣고 Git에는 올리지 않는다. `include/ntrip_secrets.example.h`를 복사해서 사용한다.
+RTK 사용 시 Cluster ESP32가 Wi-Fi로 NTRIP caster에 접속하고, 수신한 RTCM3 바이트를 가공 없이 `GPIO14` UART TX로 ZED-F9P RX2에 전달한다. 실제 Wi-Fi/NTRIP 계정정보는 `include/ntrip_secrets.h`에 넣고 Git에는 올리지 않는다. `include/ntrip_secrets.example.h`를 복사해서 사용한다.
 
 회생제동 입력은 기존 4단 로터리 셀렉터에서 `Regen Auto` 토글 1개로 변경했다. GPIO27 토글이 ON(LOW)이면 VCU 자동 회생제동 허용을 요청하고, OFF(HIGH)이면 회생제동 OFF를 요청한다. 실제 회생 가능 여부와 전류 제한은 VCU가 배터리 전압/SOC/고장 상태를 기준으로 최종 판단한다.
 
-GPIO14는 더 이상 회생제동 입력으로 사용하지 않으며 현재 spare GPIO로 남긴다.
+GPIO15는 현재 펌웨어에서 사용하지 않는다. GPIO15는 strapping pin이므로 외부 회로가 부팅 순간 강하게 잡아당기지 않게 주의한다.
 
 GPIO34는 현재 펌웨어에서 사용하지 않는다. LV 12V 전압 측정용 저항분압 회로도 PCB에 넣지 않는다.
 

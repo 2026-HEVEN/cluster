@@ -26,6 +26,7 @@ void begin() {
     SPI.begin(PIN_TFT_SCLK, PIN_TFT_MISO, PIN_TFT_MOSI, PIN_TFT_CS);
     tft.begin();
     tft.setRotation(1);       // landscape: 320x240
+    tft.invertDisplay(true); // Match LCD modules that use inverted panel colors.
     tft.fillScreen(ILI9341_BLACK);
 }
 

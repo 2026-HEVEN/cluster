@@ -1,4 +1,0 @@
-(sym_lib_table
-	(version 7)
-	(lib (name "HEVEN_Cluster_RevA-cache") (type "Legacy") (uri "C:/heven/HEVEN_Cluster_RevA_ROUTED_DRAFT/HEVEN_Cluster_RevA-cache.lib") (options "") (descr "레거시 프로젝트 캐시 라이브러리"))
-)

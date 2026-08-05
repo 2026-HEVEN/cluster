@@ -10,12 +10,12 @@
 #include <Adafruit_ILI9341.h>
 
 namespace {
-constexpr int PIN_TFT_CS   = 26;
-constexpr int PIN_TFT_DC   = 25;
-constexpr int PIN_TFT_RST  = 33;
-constexpr int PIN_TFT_SCLK = 18;
-constexpr int PIN_TFT_MOSI = 23;
-constexpr int PIN_TFT_MISO = -1;   // ILI9341 readback is unused.
+constexpr int PIN_TFT_CS   = 4;
+constexpr int PIN_TFT_DC   = 5;
+constexpr int PIN_TFT_RST  = 16;
+constexpr int PIN_TFT_SCLK = 21;
+constexpr int PIN_TFT_MOSI = 19;
+constexpr int PIN_TFT_MISO = 22;   // Shared SPI MISO for touch controller readback.
 
 Adafruit_ILI9341 tft(PIN_TFT_CS, PIN_TFT_DC, PIN_TFT_RST);
 }
@@ -26,6 +26,7 @@ void begin() {
     SPI.begin(PIN_TFT_SCLK, PIN_TFT_MISO, PIN_TFT_MOSI, PIN_TFT_CS);
     tft.begin();
     tft.setRotation(1);       // landscape: 320x240
+    tft.invertDisplay(true); // Match LCD modules that use inverted panel colors.
     tft.fillScreen(ILI9341_BLACK);
 }
 

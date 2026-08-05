@@ -34,11 +34,14 @@ constexpr uint32_t CAN_ID_FB1_L = 0x1801D0EF;   // Part I: voltage/current/speed
 constexpr uint32_t CAN_ID_FB2_L = 0x1802D0EF;   // Part II: temps/status/errors (Controller_L)
 constexpr uint32_t CAN_ID_FB1_R = 0x1801D0F0;   // Part I (Controller_R)
 constexpr uint32_t CAN_ID_FB2_R = 0x1802D0F0;   // Part II (Controller_R)
-// Cluster -> VCU command (paddock/TC/regen/debug config). HEVEN-defined.
+// Cluster -> VCU command (paddock/TC/regen-auto/debug config). HEVEN-defined.
 constexpr uint32_t CAN_ID_CLUSTER_CMD = 0x1801D0C0;
 // VCU -> Cluster display status. HEVEN-defined. Used for VCU-confirmed gear,
 // HV/brake state, and optional SOC when a battery interface is available.
 constexpr uint32_t CAN_ID_VCU_CLUSTER_STATUS = 0x1801C0D0;
+// VCU -> Cluster/TMA-1 single vehicle speed. Bytes 0..1 contain km/h x 10,
+// byte 2 is valid flag (1=valid, 0=invalid), byte 3..7 reserved zero.
+constexpr uint32_t CAN_ID_VCU_VEHICLE_SPEED = 0x1803C0D0;
 // Cluster -> logger/TMA-1 BMS telemetry, broadcast. HEVEN-defined.
 constexpr uint32_t CAN_ID_CLUSTER_BMS_STATUS = 0x18F3FFC0;
 constexpr uint32_t CAN_ID_CLUSTER_BMS_DETAIL = 0x18F4FFC0;

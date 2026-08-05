@@ -12,7 +12,7 @@
 namespace can_bus {
 
 void begin() {
-    twai_general_config_t g = TWAI_GENERAL_CONFIG_DEFAULT(GPIO_NUM_5, GPIO_NUM_4, TWAI_MODE_NORMAL);
+    twai_general_config_t g = TWAI_GENERAL_CONFIG_DEFAULT(GPIO_NUM_18, GPIO_NUM_17, TWAI_MODE_NORMAL);
     twai_timing_config_t  t = TWAI_TIMING_CONFIG_250KBITS();
     twai_filter_config_t  f = TWAI_FILTER_CONFIG_ACCEPT_ALL();
     twai_driver_install(&g, &t, &f);
@@ -73,6 +73,12 @@ namespace {
         } else {
             // Do not clear SOC here: a direct BLE BMS reader may be the source.
         }
+    }
+
+    void decode_vcu_vehicle_speed(const uint8_t *d) {
+        const bool valid = d[2] == 1;
+        state.vehicle_speed_valid = valid;
+        state.vehicle_speed_kph = valid ? (float)u16le(d + 0) * 0.1f : 0.0f;
     }
 
     void transmit_ext(uint32_t id, const uint8_t data[8]) {
@@ -140,6 +146,10 @@ void poll_rx() {
             case CAN_ID_VCU_CLUSTER_STATUS:
                 state.vcu_cluster_status_last_ms = now;
                 decode_vcu_cluster_status(m.data);
+                break;
+            case CAN_ID_VCU_VEHICLE_SPEED:
+                decode_vcu_vehicle_speed(m.data);
+                state.vehicle_speed_last_rx_ms = now;
                 break;
             default:
                 break;

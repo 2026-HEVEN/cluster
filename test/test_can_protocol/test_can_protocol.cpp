@@ -7,6 +7,7 @@ void test_torque_offset(void) { TEST_ASSERT_EQUAL_UINT16(32000, torque_to_raw(0.
 // Cluster additions
 void test_cluster_cmd_id(void) { TEST_ASSERT_EQUAL_HEX32(0x1801D0C0, CAN_ID_CLUSTER_CMD); }
 void test_vcu_cluster_status_id(void) { TEST_ASSERT_EQUAL_HEX32(0x1801C0D0, CAN_ID_VCU_CLUSTER_STATUS); }
+void test_vcu_vehicle_speed_id(void) { TEST_ASSERT_EQUAL_HEX32(0x1803C0D0, CAN_ID_VCU_VEHICLE_SPEED); }
 void test_cluster_bms_ids(void) {
     TEST_ASSERT_EQUAL_HEX32(0x18F3FFC0, CAN_ID_CLUSTER_BMS_STATUS);
     TEST_ASSERT_EQUAL_HEX32(0x18F4FFC0, CAN_ID_CLUSTER_BMS_DETAIL);
@@ -31,22 +32,24 @@ void test_decode_speed(void)   { TEST_ASSERT_EQUAL_INT(0, raw_to_speed(32000)); 
 
 void test_encode_config_flags(void) {
     uint8_t out[8];
-    encode_cluster_command({false, true, 3, true}, out);
+    encode_cluster_command({false, true, true, true}, out);
     TEST_ASSERT_EQUAL_UINT8(0, out[0]);   // reserved: gear is handled by VCU
-    TEST_ASSERT_EQUAL_UINT8(0x0F, out[1]); // TC + regen level 3 + debug
+    TEST_ASSERT_EQUAL_UINT8(0x0B, out[1]); // TC + regen auto + debug
     TEST_ASSERT_EQUAL_UINT8(0, out[2] & 0x01);   // paddock off
     TEST_ASSERT_EQUAL_UINT8(0, out[2] & 0xFE);    // remaining flags reserved
 }
 
 void test_encode_paddock_bit(void) {
     uint8_t out[8];
-    encode_cluster_command({true, false, 0, false}, out);
+    encode_cluster_command({true, false, false, false}, out);
     TEST_ASSERT_EQUAL_UINT8(1, out[2] & 0x01);   // paddock on
 }
-void test_encode_regen_clamps_to_two_bits(void) {
+void test_encode_regen_auto_bit(void) {
     uint8_t out[8];
-    encode_cluster_command({false, false, 7, false}, out);
-    TEST_ASSERT_EQUAL_UINT8(0x06, out[1] & 0x06);
+    encode_cluster_command({false, false, false, false}, out);
+    TEST_ASSERT_EQUAL_UINT8(0x00, out[1] & 0x06);
+    encode_cluster_command({false, false, true, false}, out);
+    TEST_ASSERT_EQUAL_UINT8(0x02, out[1] & 0x06);
 }
 void test_encode_cluster_bms_status(void) {
     uint8_t out[8];
@@ -95,6 +98,7 @@ int main(int, char **) {
     RUN_TEST(test_torque_offset);
     RUN_TEST(test_cluster_cmd_id);
     RUN_TEST(test_vcu_cluster_status_id);
+    RUN_TEST(test_vcu_vehicle_speed_id);
     RUN_TEST(test_cluster_bms_ids);
     RUN_TEST(test_feedback_ids);
     RUN_TEST(test_feedback_ids_lr_distinct);
@@ -104,7 +108,7 @@ int main(int, char **) {
     RUN_TEST(test_decode_speed);
     RUN_TEST(test_encode_config_flags);
     RUN_TEST(test_encode_paddock_bit);
-    RUN_TEST(test_encode_regen_clamps_to_two_bits);
+    RUN_TEST(test_encode_regen_auto_bit);
     RUN_TEST(test_encode_cluster_bms_status);
     RUN_TEST(test_encode_cluster_bms_detail);
     return UNITY_END();

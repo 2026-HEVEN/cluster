@@ -11,6 +11,6 @@
 struct ClusterCommand {
     bool    paddock       = false; // request VCU speed limit
     bool    tc_enabled    = false; // traction control / torque vectoring request
-    uint8_t regen_level   = 0;     // 0..3 from SW_REGEN_A/B
+    bool    regen_auto_enabled = false; // request VCU automatic regen; false=request regen off
     bool    debug_enabled = false; // request verbose/debug logging
 };

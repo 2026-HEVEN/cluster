@@ -17,6 +17,7 @@
 #include "modules/widgets/widget_gear.h"
 #include "modules/widgets/widget_laptime.h"
 #include <Arduino.h>
+#include <XPT2046_Touchscreen.h>
 #include <cstdio>
 
 // [LOCKED] The ONLY translation unit that touches `state`.
@@ -25,24 +26,28 @@ ClusterState state;
 namespace {
     // Input pins (direct GPIO; if pin count runs short, an io_expander can be
     // reintroduced HERE only, without touching any module).
-    constexpr int PIN_PADDOCK = 13;
-    constexpr int PIN_TC = 14;
-    constexpr int PIN_REGEN_A = 16;
-    constexpr int PIN_REGEN_B = 17;
-    constexpr int PIN_DEBUG = 27;
-    constexpr int PIN_LCD_ACTION = 19;
-    constexpr int PIN_STATUS_PAGE = 21;  // LOW shows vehicle status
-    constexpr int PIN_LV_VOLTAGE = 34;   // ADC1, 100k/27k divider from LV 12V
-    constexpr float LV_ADC_REF_V = 3.3f;
-    constexpr float LV_ADC_MAX = 4095.0f;
-    constexpr float LV_DIVIDER_SCALE = (100.0f + 27.0f) / 27.0f;
+    constexpr int PIN_PADDOCK = 33;
+    constexpr int PIN_TC = 25;
+    constexpr int PIN_REGEN_AUTO = 27; // regen auto toggle; ON=LOW, OFF=request regen disabled
+    constexpr int PIN_DEBUG = 26;
+    constexpr int PIN_GPS_LAP_START = 32;     // set GPS lap start
+    constexpr int PIN_TOUCH_CS = 23;        // XPT2046 touch chip select; touch toggles vehicle status
+    constexpr int PIN_WARNING_DETAIL = 13; // LOW toggles warning detail page
     constexpr uint32_t CAN_STARTUP_GRACE_MS = 3000;
     constexpr uint32_t CONTROLLER_FRAME_TIMEOUT_MS = 300;
     constexpr uint32_t VCU_STATUS_TIMEOUT_MS = 300;
+    constexpr uint32_t VEHICLE_SPEED_TIMEOUT_MS = 300;
     FrameBuffer fb;
     bool warning_detail_page = false;
-    bool warning_button_down = false;
-    uint32_t warning_button_last_ms = 0;
+    bool status_page = false;
+    bool status_touch_down = false;
+    uint32_t status_touch_last_ms = 0;
+    constexpr uint32_t STATUS_TOUCH_DEBOUNCE_MS = 120;
+    XPT2046_Touchscreen touch(PIN_TOUCH_CS);
+    bool gps_lap_start_button_down = false;
+    uint32_t gps_lap_start_button_last_ms = 0;
+    bool warning_detail_button_down = false;
+    uint32_t warning_detail_button_last_ms = 0;
 
     int gear_code(uint8_t gear) { return gear <= 3 ? gear : 0; }
 
@@ -97,7 +102,7 @@ namespace {
     }
 
     bool status_page_active() {
-        return digitalRead(PIN_STATUS_PAGE) == LOW;
+        return status_page;
     }
 
     const char *fresh_label(uint32_t last_ms, uint32_t now, uint32_t timeout_ms) {
@@ -175,7 +180,7 @@ namespace {
         char buf[48];
 
         std::snprintf(buf, sizeof(buf), "%s %s", side, fault_label(err1, err2, err3));
-        status_line(y, buf, 3);
+        status_line(y, buf, 2);
 
         std::snprintf(buf, sizeof(buf), "MTR %03dC %s", motor_temp, motor_heat_label(err1));
         status_line(y, buf, 2);
@@ -219,11 +224,11 @@ namespace {
         }
         status_line(y, buf, 2);
 
-        y += 4;
+        y += 3;
         draw_side_status(y, "LEFT", state.motor_temp, state.controller_temp,
                          state.bus_voltage, state.error1, state.error2, state.error3);
 
-        y += 5;
+        y += 3;
         draw_side_status(y, "RIGHT", state.motor_temp_r, state.controller_temp_r,
                          state.bus_voltage_r, state.error1_r, state.error2_r, state.error3_r);
     }
@@ -263,25 +268,53 @@ namespace {
         for (int i = 0; i < count; ++i) warning_line(y, labels[i], scale, step);
     }
 
-    void lcd_action_update() {
-        const bool warn = warning_active();
-        if (warn) {
+    bool read_regen_auto_enabled() {
+        return digitalRead(PIN_REGEN_AUTO) == LOW;
+    }
+
+    void status_touch_update() {
+        const bool down = touch.touched();
+        const uint32_t now = millis();
+        if (down != status_touch_down && now - status_touch_last_ms >= STATUS_TOUCH_DEBOUNCE_MS) {
+            status_touch_down = down;
+            status_touch_last_ms = now;
+            if (down) {
+                status_page = !status_page;
+            }
+        }
+    }
+    void gps_lap_start_update() {
+        if (warning_active()) {
             gps_laptimer::stop();
-        } else {
-            warning_detail_page = false;
+            return;
         }
 
-        const bool down = digitalRead(PIN_LCD_ACTION) == LOW;
+        warning_detail_page = false;
+        const bool down = digitalRead(PIN_GPS_LAP_START) == LOW;
         const uint32_t now = millis();
-        if (down != warning_button_down && now - warning_button_last_ms >= 50) {
-            warning_button_down = down;
-            warning_button_last_ms = now;
+        if (down != gps_lap_start_button_down && now - gps_lap_start_button_last_ms >= 50) {
+            gps_lap_start_button_down = down;
+            gps_lap_start_button_last_ms = now;
             if (down) {
-                if (warn) {
-                    warning_detail_page = !warning_detail_page;
-                } else {
-                    gps_laptimer::start_at_current_fix();
-                }
+                gps_laptimer::start_at_current_fix();
+            }
+        }
+    }
+
+    void warning_detail_update() {
+        const bool warn = warning_active();
+        if (!warn) {
+            warning_detail_page = false;
+            return;
+        }
+
+        const bool down = digitalRead(PIN_WARNING_DETAIL) == LOW;
+        const uint32_t now = millis();
+        if (down != warning_detail_button_down && now - warning_detail_button_last_ms >= 50) {
+            warning_detail_button_down = down;
+            warning_detail_button_last_ms = now;
+            if (down) {
+                warning_detail_page = !warning_detail_page;
             }
         }
     }
@@ -305,6 +338,11 @@ namespace {
             }
         }
 
+        if (frame_stale(state.vehicle_speed_last_rx_ms, now, VEHICLE_SPEED_TIMEOUT_MS)) {
+            state.vehicle_speed_kph = 0.0f;
+            state.vehicle_speed_valid = false;
+        }
+
         if (state.gear_from_can && vcu_status_stale(now)) {
             state.gear_from_can = false;
             state.brake = false;
@@ -315,13 +353,14 @@ namespace {
 
 static void hmi_update() {
     refresh_can_timeouts();
-    lcd_action_update();
+    gps_lap_start_update();
+    warning_detail_update();
+    status_touch_update();
 
     HmiSwitches sw;
     sw.paddock       = digitalRead(PIN_PADDOCK) == LOW;
     sw.tc_enabled    = digitalRead(PIN_TC) == LOW;
-    sw.regen_a       = digitalRead(PIN_REGEN_A) == LOW;
-    sw.regen_b       = digitalRead(PIN_REGEN_B) == LOW;
+    sw.regen_auto_enabled = read_regen_auto_enabled();
     sw.debug_enabled = digitalRead(PIN_DEBUG) == LOW;
     ClusterCommand cmd = hmi_compute(sw);
     if (!state.gear_from_can) {
@@ -329,7 +368,7 @@ static void hmi_update() {
     }
     state.paddock = cmd.paddock;
     state.tc_enabled = cmd.tc_enabled;
-    state.regen_level = cmd.regen_level;
+    state.regen_auto_enabled = cmd.regen_auto_enabled;
     state.debug_enabled = cmd.debug_enabled;
     state.reset_req  = false;
     can_bus::send_command(cmd);
@@ -339,12 +378,6 @@ static void can_rx_update() { can_bus::poll_rx(); }
 static void gps_update() { gps_laptimer::poll(); }
 static void bms_update() { bms_ble::poll(); }
 static void bms_can_tx_update() { can_bus::send_bms_status(); }
-static void lv_voltage_update() {
-    const int raw = analogRead(PIN_LV_VOLTAGE);
-    state.lv_voltage = ((float)raw * LV_ADC_REF_V / LV_ADC_MAX) * LV_DIVIDER_SCALE;
-    state.lv_voltage_valid = true;
-}
-
 static void display_update() {
     fb.clear();
     const bool warn = warning_active();
@@ -353,7 +386,7 @@ static void display_update() {
     } else if (warn && warning_detail_page) {
         draw_warning_detail();
     } else {
-        widget_speed_draw(fb,    10,  10, (int)state.speed_rpm);
+        widget_speed_draw(fb,    10,  10, (int)(state.vehicle_speed_kph + 0.5f));
         widget_warnings_draw(fb, 248,  22, warn, state.hv_active);
         widget_gear_draw(fb,     289,  16, gear_code(state.gear));
         const int soc_pct = state.soc_valid ? (int)(state.soc * 100.0f + 0.5f) : -1;
@@ -371,7 +404,6 @@ Task g_tasks[] = {
     { gps_update,     20, 0 },   // 50 Hz UART drain
     { bms_update,    100, 0 },   // 10 Hz BLE BMS state machine
     { bms_can_tx_update, 100, 0 }, // 10 Hz BMS telemetry to logger/TMA-1
-    { lv_voltage_update, 100, 0 }, // 10 Hz LV 12V monitor
     { hmi_update,     20, 0 },   // 50 Hz
     { display_update, 66, 0 },   // ~15 Hz
 };
@@ -380,14 +412,15 @@ const int G_TASK_COUNT = sizeof(g_tasks) / sizeof(g_tasks[0]);
 void modules_init() {
     pinMode(PIN_PADDOCK, INPUT_PULLUP);
     pinMode(PIN_TC, INPUT_PULLUP);
-    pinMode(PIN_REGEN_A, INPUT_PULLUP);
-    pinMode(PIN_REGEN_B, INPUT_PULLUP);
+    pinMode(PIN_REGEN_AUTO, INPUT_PULLUP);
     pinMode(PIN_DEBUG, INPUT_PULLUP);
-    pinMode(PIN_LCD_ACTION, INPUT_PULLUP);
-    pinMode(PIN_STATUS_PAGE, INPUT_PULLUP);
-    analogSetPinAttenuation(PIN_LV_VOLTAGE, ADC_11db);
+    pinMode(PIN_GPS_LAP_START, INPUT_PULLUP);
+    pinMode(PIN_WARNING_DETAIL, INPUT_PULLUP);
     can_bus::begin();
     gps_laptimer::begin();
     bms_ble::begin();
+    pinMode(PIN_TOUCH_CS, OUTPUT);
+    digitalWrite(PIN_TOUCH_CS, HIGH);
     display_blit::begin();
+    touch.begin();
 }

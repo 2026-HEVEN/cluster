@@ -27,6 +27,11 @@ struct ClusterState {
     uint32_t controller_l_fb2_last_ms = 0;
     // Controller_R mirror of the above (dual motor — see CAN_PROTOCOL.md §7)
     float    speed_rpm_r    = 0.0f;
+    // Vehicle speed received from VCU vehicle_speed_compute().
+    // This is the display/lap-timer source; Cluster does not recompute wheel averages.
+    float    vehicle_speed_kph = 0.0f;
+    bool     vehicle_speed_valid = false;
+    uint32_t vehicle_speed_last_rx_ms = 0;
     float    bus_voltage_r  = 0.0f;
     float    bus_current_r  = 0.0f;
     int      controller_temp_r = 0;
@@ -45,11 +50,10 @@ struct ClusterState {
     // HMI outputs (sent to VCU)
     bool     paddock = false;
     bool     tc_enabled = false;
-    uint8_t  regen_level = 0;       // 0..3
+    bool     regen_auto_enabled = false;
     bool     debug_enabled = false;
     bool     reset_req  = false;
-    bool     lv_voltage_valid = false;
-    float    lv_voltage = 0.0f;     // 12V LV line, measured through D34 divider
+
 
     // BMS telemetry (display-only). BMS data may arrive directly over BLE
     // or through a future VCU summary frame; it must not be used for safety

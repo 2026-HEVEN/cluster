@@ -46,7 +46,7 @@ void put_u16le(uint8_t *out, uint16_t value) {
 void encode_cluster_command(const ClusterCommand &cmd, uint8_t out[8]) {
     for (int i = 0; i < 8; i++) out[i] = 0;
     out[1] = (cmd.tc_enabled ? 0x01 : 0x00) |
-             ((cmd.regen_level & 0x03) << 1) |
+             (cmd.regen_auto_enabled ? 0x02 : 0x00) |
              (cmd.debug_enabled ? 0x08 : 0x00);
     out[2] = (cmd.paddock ? 0x01 : 0x00);
 }

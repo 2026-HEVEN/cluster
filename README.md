@@ -33,7 +33,7 @@ pio run -e esp32dev -t upload
 
 > ℹ️ 모터컨트롤러 값은 MCU→VCU 피드백 프레임을 Cluster가 같은 CAN 버스에서 수신합니다. BMS SOC는 `LWS-1608` BLE BMS에 Cluster ESP32가 직접 연결해 표시용 telemetry로만 읽습니다.
 > ℹ️ 계기판 속도 표시는 VCU가 내부 `vehicle_speed_compute()`로 산출한 단일 차량속도 프레임 `0x1803C0D0`을 사용합니다. 이 값은 전륜 기준 보정 로직을 거친 `km/h x 10` 값이며, Cluster는 다시 네 바퀴 평균을 내지 않습니다.
-> ℹ️ GPS Lap Start는 현재 GNSS fix 위치를 출발점으로 저장합니다. 이후 VCU 단일 차량속도 `0.5 km/h` 초과가 `150ms` 이상 지속되면 랩타이머를 시작하고, 다시 출발점 반경 `0.75m` 안으로 들어오면 랩을 갱신합니다.
+> ℹ️ GPS Lap Start는 현재 GNSS fix 위치를 출발점으로 저장합니다. 이후 VCU 단일 차량속도 `0.5 km/h` 초과가 `150ms` 이상 지속되면 랩타이머를 시작하고, 다시 출발점 반경 `2.0m` 안으로 들어오면 랩을 갱신합니다.
 
 
 ## 현재 하드웨어 핀맵
@@ -47,15 +47,20 @@ pio run -e esp32dev -t upload
 | LCD ILI9341 | RST | GPIO16 | LCD reset |
 | LCD ILI9341 | SCK | GPIO21 | SPI clock |
 | LCD ILI9341 | MOSI | GPIO19 | ESP32 -> LCD/Touch |
-| LCD / Touch SPI | MISO / T_DO | GPIO22 | Touch controller -> ESP32, LCD SDO readback optional |
-| LCD Touch XPT2046 | T_CS | GPIO23 | Touch chip select, 터치 시 Car Check 화면 토글 |
-| GPS ZED-F9P | RX | GPIO35 | GNSS UART TX -> ESP32, 38400 baud NMEA RMC. GPS 탈착 가능 구조면 10k pull-up to 3.3V 권장 |
+| LCD / Touch SPI | MISO / T_DO | GPIO35 | Touch controller -> ESP32, LCD SDO readback optional |
+| LCD Touch XPT2046 | T_CS | GPIO23 | Touch chip select. 오른쪽 터치=다음 페이지, 왼쪽 터치=이전 페이지 |
+| GPS ZED-F9P | RX | GPIO22 | ZED-F9P TX2 -> ESP32, 460800 baud NMEA/UBX 수신 |
+| GPS ZED-F9P | TX | GPIO15 | ESP32 -> ZED-F9P RX2, NTRIP RTCM3 보정 데이터 송신 |
 | HMI | Paddock | GPIO33 | 토글 스위치, INPUT_PULLUP, ON=LOW |
 | HMI | TC | GPIO25 | 토글 스위치, INPUT_PULLUP, ON=LOW |
 | HMI | Regen Auto | GPIO27 | 토글 스위치, INPUT_PULLUP, ON=LOW: VCU 자동 회생 허용, OFF=회생제동 OFF 요청 |
 | HMI | Debug | GPIO26 | 토글 스위치, INPUT_PULLUP, ON=LOW |
 | HMI | GPS Lap Start | GPIO32 | 순간 푸시 버튼, 정상 상태에서 GPS lap start 저장 |
-| HMI | Warning Detail | GPIO13 | 순간 푸시 버튼, warning 상세 화면 토글 |
+| HMI | Warning Detail | GPIO13 | 예비 입력. 현재 warning 상세 화면은 LCD 터치 페이지 3에서 표시 |
+
+GPS TX2는 PCB에서 분기해 Cluster ESP32 `GPIO22`와 TMA-1 `GPS_RX`에 동시에 넣을 수 있다. TMA-1 `GPS_TX`는 ZED-F9P RX2에 연결하지 않는다.
+
+RTK 사용 시 Cluster ESP32가 Wi-Fi로 NTRIP caster에 접속하고, 수신한 RTCM3 바이트를 가공 없이 `GPIO15` UART TX로 ZED-F9P RX2에 전달한다. 실제 Wi-Fi/NTRIP 계정정보는 `include/ntrip_secrets.h`에 넣고 Git에는 올리지 않는다. `include/ntrip_secrets.example.h`를 복사해서 사용한다.
 
 회생제동 입력은 기존 4단 로터리 셀렉터에서 `Regen Auto` 토글 1개로 변경했다. GPIO27 토글이 ON(LOW)이면 VCU 자동 회생제동 허용을 요청하고, OFF(HIGH)이면 회생제동 OFF를 요청한다. 실제 회생 가능 여부와 전류 제한은 VCU가 배터리 전압/SOC/고장 상태를 기준으로 최종 판단한다.
 

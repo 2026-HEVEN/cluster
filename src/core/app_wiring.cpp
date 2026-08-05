@@ -9,6 +9,7 @@
 #include "core/display_blit.h"
 #include "core/bms_ble.h"
 #include "core/gps_laptimer.h"
+#include "core/ntrip.h"
 #include "framebuffer.h"
 #include "modules/hmi_input.h"
 #include "modules/widgets/widget_speed.h"
@@ -401,6 +402,7 @@ static void hmi_update() {
 
 static void can_rx_update() { can_bus::poll_rx(); }
 static void gps_update() { gps_laptimer::poll(); }
+static void ntrip_update() { ntrip::poll(); }
 static void bms_update() { bms_ble::poll(); }
 static void bms_can_tx_update() { can_bus::send_bms_status(); }
 static void display_update() {
@@ -428,6 +430,7 @@ static void display_update() {
 Task g_tasks[] = {
     { can_rx_update,   5, 0 },   // 200 Hz drain
     { gps_update,     20, 0 },   // 50 Hz UART drain
+    { ntrip_update,   10, 0 },   // 100 Hz Wi-Fi/NTRIP RTCM forwarding
     { bms_update,    100, 0 },   // 10 Hz BLE BMS state machine
     { bms_can_tx_update, 100, 0 }, // 10 Hz BMS telemetry to logger/TMA-1
     { hmi_update,     20, 0 },   // 50 Hz
@@ -444,6 +447,7 @@ void modules_init() {
     pinMode(PIN_WARNING_DETAIL, INPUT_PULLUP);
     can_bus::begin();
     gps_laptimer::begin();
+    ntrip::begin();
     bms_ble::begin();
     pinMode(PIN_TOUCH_CS, OUTPUT);
     digitalWrite(PIN_TOUCH_CS, HIGH);

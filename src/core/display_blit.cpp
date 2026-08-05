@@ -15,7 +15,7 @@ constexpr int PIN_TFT_DC   = 5;
 constexpr int PIN_TFT_RST  = 16;
 constexpr int PIN_TFT_SCLK = 21;
 constexpr int PIN_TFT_MOSI = 19;
-constexpr int PIN_TFT_MISO = 22;   // Shared SPI MISO for touch controller readback.
+constexpr int PIN_TFT_MISO = 35;   // Shared SPI MISO for touch controller readback.
 
 constexpr bool PANEL_INVERTED = true; // Devicemart 3.2-inch THL/CD01 ILI9341 panel colors.
 Adafruit_ILI9341 tft(PIN_TFT_CS, PIN_TFT_DC, PIN_TFT_RST);

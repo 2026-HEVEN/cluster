@@ -1,6 +1,7 @@
 #include "core/gps_laptimer.h"
 #include <Arduino.h>
 #include <HardwareSerial.h>
+#include <cstring>
 #include <math.h>
 #include <stdlib.h>
 #include <string.h>
@@ -8,10 +9,11 @@
 
 namespace gps_laptimer {
 namespace {
-constexpr int PIN_GPS_RX = 35;      // GPS TX -> ESP32 GPIO35
-constexpr int PIN_GPS_TX = -1;      // receive-only
-constexpr uint32_t GPS_BAUD = 38400;
+constexpr int PIN_GPS_RX = 22;      // GPS TX2 -> ESP32 GPIO22
+constexpr int PIN_GPS_TX = 15;      // ESP32 GPIO15 -> GPS RX2 for RTCM3 corrections
+constexpr uint32_t GPS_BAUD = 460800;
 constexpr int GPS_LINE_MAX = 96;
+constexpr int GGA_LINE_MAX = 96;
 constexpr float LAP_TRIGGER_RADIUS_M = 2.0f;
 constexpr float START_RADIUS_M = 2.0f;
 constexpr float REARM_RADIUS_M = 20.0f;
@@ -24,6 +26,9 @@ constexpr uint32_t GPS_FIX_TIMEOUT_MS = 3000;
 HardwareSerial gps_serial(2);
 char line[GPS_LINE_MAX];
 int line_len = 0;
+char last_gga[GGA_LINE_MAX];
+uint32_t last_gga_time_ms = 0;
+uint8_t gga_fix_quality = 0;
 
 bool have_start = false;
 bool lap_armed = false;
@@ -69,6 +74,40 @@ double deg_min_to_decimal(const char *value, char hemi) {
     double decimal = (double)deg + minutes / 60.0;
     if (hemi == 'S' || hemi == 'W') decimal = -decimal;
     return decimal;
+}
+
+void copy_gga_sentence(const char *sentence) {
+    std::strncpy(last_gga, sentence, sizeof(last_gga) - 1);
+    last_gga[sizeof(last_gga) - 1] = '\0';
+    last_gga_time_ms = millis();
+}
+
+void parse_gga(char *sentence) {
+    if (!checksum_ok(sentence)) return;
+
+    char original[GGA_LINE_MAX];
+    std::strncpy(original, sentence, sizeof(original) - 1);
+    original[sizeof(original) - 1] = '\0';
+
+    char *star = strchr(sentence, '*');
+    if (star) *star = '\0';
+
+    char *fields[16] = {};
+    int count = 0;
+    char *p = sentence[0] == '$' ? sentence + 1 : sentence;
+    fields[count++] = p;
+    while (*p && count < 16) {
+        if (*p == ',') {
+            *p = '\0';
+            fields[count++] = p + 1;
+        }
+        ++p;
+    }
+
+    if (count < 7) return;
+    if (strcmp(fields[0], "GPGGA") != 0 && strcmp(fields[0], "GNGGA") != 0) return;
+    copy_gga_sentence(original);
+    gga_fix_quality = (uint8_t)atoi(fields[6]);
 }
 
 bool vehicle_speed_fresh(uint32_t now) {
@@ -201,6 +240,10 @@ void consume_char(char c) {
             if (line[0] == '$' && checksum_ok(line)) {
                 state.gps_last_rx_ms = millis();
             }
+            char gga_copy[GPS_LINE_MAX];
+            std::strncpy(gga_copy, line, sizeof(gga_copy) - 1);
+            gga_copy[sizeof(gga_copy) - 1] = '\0';
+            parse_gga(gga_copy);
             parse_rmc(line);
         }
         line_len = 0;
@@ -217,6 +260,12 @@ void consume_char(char c) {
 
 void begin() {
     gps_serial.begin(GPS_BAUD, SERIAL_8N1, PIN_GPS_RX, PIN_GPS_TX);
+    Serial.print("[GPS] UART2 RX GPIO");
+    Serial.print(PIN_GPS_RX);
+    Serial.print(" TX GPIO");
+    Serial.print(PIN_GPS_TX);
+    Serial.print(" baud ");
+    Serial.println(GPS_BAUD);
 }
 
 void poll() {
@@ -261,5 +310,36 @@ void stop() {
     last_cross_ms = 0;
     departure_speed_since_ms = 0;
     state.current_lap_ms = 0;
+}
+
+size_t write_rtcm(const uint8_t *data, size_t len) {
+    if (!data || len == 0) return 0;
+    return gps_serial.write(data, len);
+}
+
+const char *last_gga_sentence() {
+    return last_gga;
+}
+
+uint32_t last_gga_ms() {
+    return last_gga_time_ms;
+}
+
+uint32_t last_nmea_ms() {
+    return state.gps_last_rx_ms;
+}
+
+uint8_t fix_quality() {
+    return gga_fix_quality;
+}
+
+const char *rtk_status_label() {
+    switch (gga_fix_quality) {
+        case 4: return "RTK FIXED";
+        case 5: return "RTK FLOAT";
+        case 2: return "DGPS";
+        case 1: return "GPS FIX";
+        default: return "NO FIX";
+    }
 }
 }

@@ -37,17 +37,22 @@ namespace {
     constexpr uint32_t CONTROLLER_FRAME_TIMEOUT_MS = 300;
     constexpr uint32_t VCU_STATUS_TIMEOUT_MS = 300;
     constexpr uint32_t VEHICLE_SPEED_TIMEOUT_MS = 300;
+    constexpr uint32_t GPS_SIGNAL_TIMEOUT_MS = 3000;
+    constexpr uint32_t LAP_NOTICE_MS = 1500;
+    constexpr int TOUCH_RAW_MID_X = 2048;
+    constexpr bool TOUCH_RIGHT_IS_NEXT = true;
+    enum DisplayPage : uint8_t { PAGE_MAIN = 0, PAGE_CAR_CHECK = 1, PAGE_WARNING_DETAIL = 2 };
+    constexpr uint8_t DISPLAY_PAGE_COUNT = 3;
     FrameBuffer fb;
-    bool warning_detail_page = false;
-    bool status_page = false;
+    DisplayPage display_page = PAGE_MAIN;
     bool status_touch_down = false;
     uint32_t status_touch_last_ms = 0;
     constexpr uint32_t STATUS_TOUCH_DEBOUNCE_MS = 120;
     XPT2046_Touchscreen touch(PIN_TOUCH_CS);
     bool gps_lap_start_button_down = false;
     uint32_t gps_lap_start_button_last_ms = 0;
-    bool warning_detail_button_down = false;
-    uint32_t warning_detail_button_last_ms = 0;
+    const char *lap_notice_label = nullptr;
+    uint32_t lap_notice_until_ms = 0;
 
     int gear_code(uint8_t gear) { return gear <= 3 ? gear : 0; }
 
@@ -101,8 +106,23 @@ namespace {
         y += step;
     }
 
-    bool status_page_active() {
-        return status_page;
+    bool gps_signal_fresh(uint32_t now) {
+        return state.gps_last_rx_ms != 0 &&
+               (now - state.gps_last_rx_ms) <= GPS_SIGNAL_TIMEOUT_MS;
+    }
+
+    void show_lap_notice(const char *label, uint32_t now) {
+        lap_notice_label = label;
+        lap_notice_until_ms = now + LAP_NOTICE_MS;
+    }
+
+    void page_next() {
+        display_page = (DisplayPage)(((uint8_t)display_page + 1) % DISPLAY_PAGE_COUNT);
+    }
+
+    void page_prev() {
+        display_page = display_page == PAGE_MAIN ? PAGE_WARNING_DETAIL
+                                                 : (DisplayPage)((uint8_t)display_page - 1);
     }
 
     const char *fresh_label(uint32_t last_ms, uint32_t now, uint32_t timeout_ms) {
@@ -238,6 +258,12 @@ namespace {
         int count = 0;
         const uint32_t now = millis();
 
+        fb_text(fb, 18, 14, "WARNING", 5);
+        if (!warning_active()) {
+            fb_text(fb, 36, 112, "NO WARNING", 4);
+            return;
+        }
+
         if (bit_any(state.error1, state.error1_r, 2)) add_warning(labels, count, "OVER VOLT");
         if (bit_any(state.error1, state.error1_r, 3)) add_warning(labels, count, "LOW VOLT");
         if (bit_any(state.error1, state.error1_r, 4)) add_warning(labels, count, "CTRL HOT");
@@ -248,8 +274,6 @@ namespace {
             add_warning(labels, count, "CAN ERR");
         }
         if (count == 0) add_warning(labels, count, "FAULT");
-
-        fb_text(fb, 18, 14, "WARNING", 5);
 
         int scale = 5;
         int step = 48;
@@ -279,44 +303,46 @@ namespace {
             status_touch_down = down;
             status_touch_last_ms = now;
             if (down) {
-                status_page = !status_page;
+                TS_Point p = touch.getPoint();
+                const bool right_side = p.x >= TOUCH_RAW_MID_X;
+                if (right_side == TOUCH_RIGHT_IS_NEXT) page_next();
+                else page_prev();
             }
         }
     }
     void gps_lap_start_update() {
-        if (warning_active()) {
-            gps_laptimer::stop();
-            return;
-        }
-
-        warning_detail_page = false;
         const bool down = digitalRead(PIN_GPS_LAP_START) == LOW;
         const uint32_t now = millis();
         if (down != gps_lap_start_button_down && now - gps_lap_start_button_last_ms >= 50) {
             gps_lap_start_button_down = down;
             gps_lap_start_button_last_ms = now;
             if (down) {
-                gps_laptimer::start_at_current_fix();
+                if (warning_active()) {
+                    gps_laptimer::stop();
+                    show_lap_notice("LAP STOPPED", now);
+                } else if (gps_laptimer::start_at_current_fix()) {
+                    show_lap_notice("GPS LAP START", now);
+                } else if (!gps_signal_fresh(now)) {
+                    show_lap_notice("GPS LOST", now);
+                } else {
+                    show_lap_notice("GPS NO FIX", now);
+                }
             }
         }
     }
 
-    void warning_detail_update() {
-        const bool warn = warning_active();
-        if (!warn) {
-            warning_detail_page = false;
-            return;
-        }
 
-        const bool down = digitalRead(PIN_WARNING_DETAIL) == LOW;
-        const uint32_t now = millis();
-        if (down != warning_detail_button_down && now - warning_detail_button_last_ms >= 50) {
-            warning_detail_button_down = down;
-            warning_detail_button_last_ms = now;
-            if (down) {
-                warning_detail_page = !warning_detail_page;
-            }
-        }
+    void draw_lap_notice(uint32_t now) {
+        if (!lap_notice_label || now > lap_notice_until_ms) return;
+        fb_rect(fb, 40, 84, 240, 62, true, false);
+        fb_rect(fb, 42, 86, 236, 58, false, true);
+        fb_rect(fb, 44, 88, 232, 54, false, true);
+        const int scale = 2;
+        int len = 0;
+        while (lap_notice_label[len]) ++len;
+        int x = 160 - (len * 6 * scale) / 2;
+        if (x < 8) x = 8;
+        fb_text(fb, x, 109, lap_notice_label, scale);
     }
 
     void refresh_can_timeouts() {
@@ -354,7 +380,6 @@ namespace {
 static void hmi_update() {
     refresh_can_timeouts();
     gps_lap_start_update();
-    warning_detail_update();
     status_touch_update();
 
     HmiSwitches sw;
@@ -381,9 +406,9 @@ static void bms_can_tx_update() { can_bus::send_bms_status(); }
 static void display_update() {
     fb.clear();
     const bool warn = warning_active();
-    if (status_page_active()) {
+    if (display_page == PAGE_CAR_CHECK) {
         draw_vehicle_status();
-    } else if (warn && warning_detail_page) {
+    } else if (display_page == PAGE_WARNING_DETAIL) {
         draw_warning_detail();
     } else {
         widget_speed_draw(fb,    10,  10, (int)(state.vehicle_speed_kph + 0.5f));
@@ -396,6 +421,7 @@ static void display_update() {
         widget_best_lap_draw(fb, 205, 207, state.best_lap_count,
                              state.best_lap_ms);
     }
+    draw_lap_notice(millis());
     display_blit::show(fb, warn);
 }
 
@@ -421,6 +447,6 @@ void modules_init() {
     bms_ble::begin();
     pinMode(PIN_TOUCH_CS, OUTPUT);
     digitalWrite(PIN_TOUCH_CS, HIGH);
-    display_blit::begin();
     touch.begin();
+    display_blit::begin();
 }

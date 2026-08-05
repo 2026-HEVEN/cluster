@@ -62,6 +62,7 @@ struct ClusterBmsStatus {
 void encode_cluster_command(const ClusterCommand &cmd, uint8_t out[8]);
 void encode_cluster_bms_status(const ClusterBmsStatus &bms, uint8_t life, uint8_t out[8]);
 void encode_cluster_bms_detail(const ClusterBmsStatus &bms, uint8_t life, uint8_t out[8]);
+void decode_vcu_vehicle_speed(const uint8_t d[8], float &kph, bool &valid);
 
 // Signal decoders (EZkontrol scaling)
 float raw_to_voltage(uint16_t raw);   // 0.1 V/bit, offset 0

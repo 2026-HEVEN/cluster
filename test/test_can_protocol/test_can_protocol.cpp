@@ -30,6 +30,40 @@ void test_decode_current(void) { TEST_ASSERT_FLOAT_WITHIN(0.01f, 0.0f, raw_to_cu
 void test_decode_temp(void)    { TEST_ASSERT_EQUAL_INT(25, raw_to_temp(65)); }                       // 1C/bit, -40
 void test_decode_speed(void)   { TEST_ASSERT_EQUAL_INT(0, raw_to_speed(32000)); }                    // 1rpm/bit, -32000
 
+
+void test_decode_vcu_vehicle_speed_valid(void) {
+    uint8_t d[8] = {0xE8, 0x03, 1, 0, 0, 0, 0, 0};
+    float kph = -1.0f;
+    bool valid = false;
+    decode_vcu_vehicle_speed(d, kph, valid);
+    TEST_ASSERT_TRUE(valid);
+    TEST_ASSERT_FLOAT_WITHIN(0.01f, 100.0f, kph);
+}
+void test_decode_vcu_vehicle_speed_invalid_clears_value(void) {
+    uint8_t d[8] = {0xE8, 0x03, 0, 0, 0, 0, 0, 0};
+    float kph = -1.0f;
+    bool valid = true;
+    decode_vcu_vehicle_speed(d, kph, valid);
+    TEST_ASSERT_FALSE(valid);
+    TEST_ASSERT_FLOAT_WITHIN(0.01f, 0.0f, kph);
+}
+void test_decode_vcu_vehicle_speed_zero_valid(void) {
+    uint8_t d[8] = {0x00, 0x00, 1, 0, 0, 0, 0, 0};
+    float kph = -1.0f;
+    bool valid = false;
+    decode_vcu_vehicle_speed(d, kph, valid);
+    TEST_ASSERT_TRUE(valid);
+    TEST_ASSERT_FLOAT_WITHIN(0.01f, 0.0f, kph);
+}
+void test_decode_vcu_vehicle_speed_max_value(void) {
+    uint8_t d[8] = {0xFF, 0xFF, 1, 0, 0, 0, 0, 0};
+    float kph = 0.0f;
+    bool valid = false;
+    decode_vcu_vehicle_speed(d, kph, valid);
+    TEST_ASSERT_TRUE(valid);
+    TEST_ASSERT_FLOAT_WITHIN(0.01f, 6553.5f, kph);
+}
+
 void test_encode_config_flags(void) {
     uint8_t out[8];
     encode_cluster_command({false, true, true, true}, out);
@@ -106,6 +140,10 @@ int main(int, char **) {
     RUN_TEST(test_decode_current);
     RUN_TEST(test_decode_temp);
     RUN_TEST(test_decode_speed);
+    RUN_TEST(test_decode_vcu_vehicle_speed_valid);
+    RUN_TEST(test_decode_vcu_vehicle_speed_invalid_clears_value);
+    RUN_TEST(test_decode_vcu_vehicle_speed_zero_valid);
+    RUN_TEST(test_decode_vcu_vehicle_speed_max_value);
     RUN_TEST(test_encode_config_flags);
     RUN_TEST(test_encode_paddock_bit);
     RUN_TEST(test_encode_regen_auto_bit);

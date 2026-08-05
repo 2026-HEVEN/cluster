@@ -68,6 +68,7 @@ struct ClusterState {
     uint16_t bms_cycles        = 0;
     // GPS lap timer
     bool     gps_fix_ok     = false;
+    uint32_t gps_last_rx_ms = 0;  // last valid GPS/NMEA sentence reception
     uint8_t  lap_count      = 0;
     uint32_t current_lap_ms = 0;
     uint32_t last_lap_ms    = 0;

@@ -21,6 +21,7 @@ void test_state_defaults_safe(void) {
     TEST_ASSERT_FALSE(s.regen_auto_enabled);
     TEST_ASSERT_FALSE(s.debug_enabled);
     TEST_ASSERT_FALSE(s.gps_fix_ok);
+    TEST_ASSERT_EQUAL_UINT32(0, s.gps_last_rx_ms);
     TEST_ASSERT_FALSE(s.bms_ble_connected);
     TEST_ASSERT_EQUAL_UINT32(0, s.bms_last_rx_ms);
     TEST_ASSERT_EQUAL_FLOAT(0.0f, s.bms_pack_voltage);

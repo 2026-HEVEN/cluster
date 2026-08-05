@@ -41,6 +41,10 @@ void put_u16le(uint8_t *out, uint16_t value) {
     out[0] = (uint8_t)(value & 0xFF);
     out[1] = (uint8_t)(value >> 8);
 }
+
+uint16_t get_u16le(const uint8_t *d) {
+    return (uint16_t)(d[0] | ((uint16_t)d[1] << 8));
+}
 }
 
 void encode_cluster_command(const ClusterCommand &cmd, uint8_t out[8]) {
@@ -70,4 +74,9 @@ void encode_cluster_bms_detail(const ClusterBmsStatus &bms, uint8_t life, uint8_
     put_u16le(out + 2, clamp_u16((int32_t)bms.remaining_mah));
     put_u16le(out + 4, bms.cycles);
     out[7] = life;
+}
+
+void decode_vcu_vehicle_speed(const uint8_t d[8], float &kph, bool &valid) {
+    valid = d[2] == 1;
+    kph = valid ? (float)get_u16le(d) * 0.1f : 0.0f;
 }

@@ -12,10 +12,12 @@ constexpr int PIN_GPS_RX = 35;      // GPS TX -> ESP32 GPIO35
 constexpr int PIN_GPS_TX = -1;      // receive-only
 constexpr uint32_t GPS_BAUD = 38400;
 constexpr int GPS_LINE_MAX = 96;
-constexpr float LAP_TRIGGER_RADIUS_M = 0.75f;
+constexpr float LAP_TRIGGER_RADIUS_M = 2.0f;
+constexpr float START_RADIUS_M = 2.0f;
 constexpr float REARM_RADIUS_M = 20.0f;
 constexpr float DEPART_SPEED_KPH = 0.5f;
 constexpr uint32_t DEPART_CONFIRM_MS = 150;
+constexpr uint32_t VEHICLE_SPEED_STALE_MS = 300;
 constexpr uint32_t MIN_LAP_MS = 10000;
 constexpr uint32_t GPS_FIX_TIMEOUT_MS = 3000;
 
@@ -57,6 +59,8 @@ bool checksum_ok(const char *s) {
     return sum == (uint8_t)((hi << 4) | lo);
 }
 
+float distance_m(double lat1, double lon1, double lat2, double lon2);
+
 double deg_min_to_decimal(const char *value, char hemi) {
     if (!value || !value[0]) return 0.0;
     const double raw = atof(value);
@@ -67,11 +71,28 @@ double deg_min_to_decimal(const char *value, char hemi) {
     return decimal;
 }
 
+bool vehicle_speed_fresh(uint32_t now) {
+    return state.vehicle_speed_last_rx_ms != 0 &&
+           (now - state.vehicle_speed_last_rx_ms) <= VEHICLE_SPEED_STALE_MS;
+}
+
 void update_departure_timer(uint32_t now) {
     if (!have_start || !waiting_departure) return;
 
     state.current_lap_ms = 0;
-    if (!latest_fix || state.vehicle_speed_kph <= DEPART_SPEED_KPH) {
+    if (!latest_fix) {
+        departure_speed_since_ms = 0;
+        return;
+    }
+
+    bool departed = false;
+    if (vehicle_speed_fresh(now)) {
+        departed = state.vehicle_speed_kph > DEPART_SPEED_KPH;
+    } else {
+        departed = distance_m(start_lat, start_lon, latest_lat, latest_lon) >= START_RADIUS_M;
+    }
+
+    if (!departed) {
         departure_speed_since_ms = 0;
         return;
     }
@@ -113,10 +134,7 @@ void update_lap(double lat, double lon) {
         return;
     }
 
-    if (waiting_departure) {
-        update_departure_timer(now);
-        return;
-    }
+    if (waiting_departure) return;
 
     const float dist = distance_m(start_lat, start_lon, lat, lon);
     if (!timing_active || last_cross_ms == 0) return;
@@ -162,6 +180,7 @@ void parse_rmc(char *sentence) {
 
     if (count < 7) return;
     if (strcmp(fields[0], "GPRMC") != 0 && strcmp(fields[0], "GNRMC") != 0) return;
+
     if (fields[2][0] != 'A') {
         state.gps_fix_ok = false;
         latest_fix = false;
@@ -178,7 +197,12 @@ void consume_char(char c) {
     if (c == '\r') return;
     if (c == '\n') {
         line[line_len] = '\0';
-        if (line_len > 6) parse_rmc(line);
+        if (line_len > 6) {
+            if (line[0] == '$' && checksum_ok(line)) {
+                state.gps_last_rx_ms = millis();
+            }
+            parse_rmc(line);
+        }
         line_len = 0;
         return;
     }
@@ -200,12 +224,14 @@ void poll() {
         consume_char((char)gps_serial.read());
     }
 
-    if (latest_fix && millis() - last_fix_ms > GPS_FIX_TIMEOUT_MS) {
+    const uint32_t now = millis();
+    if ((latest_fix && now - last_fix_ms > GPS_FIX_TIMEOUT_MS) ||
+        (state.gps_last_rx_ms != 0 && now - state.gps_last_rx_ms > GPS_FIX_TIMEOUT_MS)) {
         state.gps_fix_ok = false;
         latest_fix = false;
     }
 
-    update_departure_timer(millis());
+    update_departure_timer(now);
 }
 
 bool start_at_current_fix() {

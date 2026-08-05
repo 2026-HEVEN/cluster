@@ -47,9 +47,9 @@ pio run -e esp32dev -t upload
 | LCD ILI9341 | RST | GPIO16 | LCD reset |
 | LCD ILI9341 | SCK | GPIO21 | SPI clock |
 | LCD ILI9341 | MOSI | GPIO19 | ESP32 -> LCD/Touch |
-| LCD / Touch SPI | MISO / T_DO | GPIO35 | Touch controller -> ESP32, LCD SDO readback optional |
+| LCD / Touch SPI | MISO / T_DO | GPIO22 | Touch controller -> ESP32, LCD SDO readback optional |
 | LCD Touch XPT2046 | T_CS | GPIO23 | Touch chip select. 오른쪽 터치=다음 페이지, 왼쪽 터치=이전 페이지 |
-| GPS ZED-F9P | RX | GPIO22 | ZED-F9P TX2 -> ESP32, 460800 baud NMEA/UBX 수신 |
+| GPS ZED-F9P | RX | GPIO35 | ZED-F9P TX2 -> ESP32, 460800 baud NMEA/UBX 수신 |
 | GPS ZED-F9P | TX | GPIO15 | ESP32 -> ZED-F9P RX2, NTRIP RTCM3 보정 데이터 송신 |
 | HMI | Paddock | GPIO33 | 토글 스위치, INPUT_PULLUP, ON=LOW |
 | HMI | TC | GPIO25 | 토글 스위치, INPUT_PULLUP, ON=LOW |
@@ -58,7 +58,7 @@ pio run -e esp32dev -t upload
 | HMI | GPS Lap Start | GPIO32 | 순간 푸시 버튼, 정상 상태에서 GPS lap start 저장 |
 | HMI | Warning Detail | GPIO13 | 예비 입력. 현재 warning 상세 화면은 LCD 터치 페이지 3에서 표시 |
 
-GPS TX2는 PCB에서 분기해 Cluster ESP32 `GPIO22`와 TMA-1 `GPS_RX`에 동시에 넣을 수 있다. TMA-1 `GPS_TX`는 ZED-F9P RX2에 연결하지 않는다.
+GPS TX2는 PCB에서 분기해 Cluster ESP32 `GPIO35`와 TMA-1 `GPS_RX`에 동시에 넣을 수 있다. TMA-1 `GPS_TX`는 ZED-F9P RX2에 연결하지 않는다.
 
 RTK 사용 시 Cluster ESP32가 Wi-Fi로 NTRIP caster에 접속하고, 수신한 RTCM3 바이트를 가공 없이 `GPIO15` UART TX로 ZED-F9P RX2에 전달한다. 실제 Wi-Fi/NTRIP 계정정보는 `include/ntrip_secrets.h`에 넣고 Git에는 올리지 않는다. `include/ntrip_secrets.example.h`를 복사해서 사용한다.
 

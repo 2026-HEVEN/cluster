@@ -27,11 +27,13 @@ struct ClusterState {
     uint32_t controller_l_fb2_last_ms = 0;
     // Controller_R mirror of the above (dual motor — see CAN_PROTOCOL.md §7)
     float    speed_rpm_r    = 0.0f;
-    // Vehicle speed received from VCU vehicle_speed_compute().
-    // This is the display/lap-timer source; Cluster does not recompute wheel averages.
+    // VSS speed received from the VCU vehicle-speed frame (0x1803C0D0).
     float    vehicle_speed_kph = 0.0f;
     bool     vehicle_speed_valid = false;
     uint32_t vehicle_speed_last_rx_ms = 0;
+    // LCD speed derived locally from fresh motor-controller RPM feedback.
+    float    display_speed_kph = 0.0f;
+    bool     display_speed_valid = false;
     float    bus_voltage_r  = 0.0f;
     float    bus_current_r  = 0.0f;
     int      controller_temp_r = 0;
@@ -67,7 +69,10 @@ struct ClusterState {
     uint8_t  bms_soh           = 0;
     uint16_t bms_cycles        = 0;
     // GPS lap timer
+    bool     gps_data_ok    = false;
     bool     gps_fix_ok     = false;
+    double   gps_latitude   = 0.0;
+    double   gps_longitude  = 0.0;
     uint8_t  lap_count      = 0;
     uint32_t current_lap_ms = 0;
     uint32_t last_lap_ms    = 0;

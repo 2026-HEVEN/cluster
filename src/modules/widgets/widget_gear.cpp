@@ -10,5 +10,5 @@ void widget_gear_draw(FrameBuffer &fb, int x, int y, int gear) {
         case 3: label = "P"; break;
         default: return;   // unknown -> blank
     }
-    fb_text(fb, x, y, label, 3);
+    fb_text(fb, x, y, label, 5);
 }

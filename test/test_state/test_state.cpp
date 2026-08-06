@@ -12,6 +12,11 @@ void test_state_defaults_safe(void) {
     TEST_ASSERT_EQUAL_UINT8(0, s.error1);
     TEST_ASSERT_EQUAL_UINT8(0, s.controller_status);
     TEST_ASSERT_EQUAL_FLOAT(0.0f, s.speed_rpm_r);
+    TEST_ASSERT_EQUAL_FLOAT(0.0f, s.vehicle_speed_kph);
+    TEST_ASSERT_FALSE(s.vehicle_speed_valid);
+    TEST_ASSERT_EQUAL_UINT32(0, s.vehicle_speed_last_rx_ms);
+    TEST_ASSERT_EQUAL_FLOAT(0.0f, s.display_speed_kph);
+    TEST_ASSERT_FALSE(s.display_speed_valid);
     TEST_ASSERT_FALSE(s.controller_r_seen);
     TEST_ASSERT_FALSE(s.gear_from_can);
     TEST_ASSERT_EQUAL_UINT8(0, s.error1_r);
@@ -20,6 +25,7 @@ void test_state_defaults_safe(void) {
     TEST_ASSERT_FALSE(s.tc_enabled);
     TEST_ASSERT_FALSE(s.regen_auto_enabled);
     TEST_ASSERT_FALSE(s.debug_enabled);
+    TEST_ASSERT_FALSE(s.gps_data_ok);
     TEST_ASSERT_FALSE(s.gps_fix_ok);
     TEST_ASSERT_FALSE(s.bms_ble_connected);
     TEST_ASSERT_EQUAL_UINT32(0, s.bms_last_rx_ms);
@@ -29,6 +35,9 @@ void test_state_defaults_safe(void) {
     TEST_ASSERT_EQUAL_UINT32(0, s.bms_remaining_mah);
     TEST_ASSERT_EQUAL_UINT8(0, s.bms_soh);
     TEST_ASSERT_EQUAL_UINT16(0, s.bms_cycles);
+    TEST_ASSERT_FALSE(s.gps_fix_ok);
+    TEST_ASSERT_TRUE(s.gps_latitude == 0.0);
+    TEST_ASSERT_TRUE(s.gps_longitude == 0.0);
     TEST_ASSERT_EQUAL_UINT8(0, s.lap_count);
     TEST_ASSERT_EQUAL_UINT32(0, s.current_lap_ms);
     TEST_ASSERT_EQUAL_UINT32(0, s.last_lap_ms);

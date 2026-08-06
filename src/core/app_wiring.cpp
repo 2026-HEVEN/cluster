@@ -37,21 +37,34 @@ namespace {
     constexpr uint32_t CONTROLLER_FRAME_TIMEOUT_MS = 300;
     constexpr uint32_t VCU_STATUS_TIMEOUT_MS = 300;
     constexpr uint32_t VEHICLE_SPEED_TIMEOUT_MS = 300;
+    constexpr float WHEEL_DIAMETER_M = 0.4597f;
+    constexpr float MOTOR_TO_WHEEL_RATIO = 3.72f;
+    constexpr float PI_F = 3.14159265f;
     FrameBuffer fb;
-    bool warning_detail_page = false;
-    bool status_page = false;
+    enum class DisplayPage : uint8_t { SPEED = 0, STATUS = 1, WARNING = 2 };
+    DisplayPage display_page = DisplayPage::SPEED;
     bool status_touch_down = false;
     uint32_t status_touch_last_ms = 0;
     constexpr uint32_t STATUS_TOUCH_DEBOUNCE_MS = 120;
     XPT2046_Touchscreen touch(PIN_TOUCH_CS);
     bool gps_lap_start_button_down = false;
     uint32_t gps_lap_start_button_last_ms = 0;
+    enum class GpsLapFeedback : uint8_t { NONE, SET, NO_FIX, NO_DATA, FIX_ON };
+    GpsLapFeedback gps_lap_feedback = GpsLapFeedback::NONE;
+    uint32_t gps_lap_feedback_started_ms = 0;
+    bool gps_fix_was_ok = false;
+    constexpr uint32_t GPS_LAP_FEEDBACK_MS = 1000;
     bool warning_detail_button_down = false;
     uint32_t warning_detail_button_last_ms = 0;
 
     int gear_code(uint8_t gear) { return gear <= 3 ? gear : 0; }
 
     float absf(float v) { return v < 0.0f ? -v : v; }
+
+    float motor_rpm_to_kph(float motor_rpm) {
+        return (absf(motor_rpm) / MOTOR_TO_WHEEL_RATIO) *
+               (PI_F * WHEEL_DIAMETER_M) * 0.06f;
+    }
 
     bool frame_fresh(uint32_t last_ms, uint32_t now, uint32_t timeout_ms) {
         return last_ms != 0 && (now - last_ms) <= timeout_ms;
@@ -88,21 +101,8 @@ namespace {
         return controller_fault_active() || can_link_warning_active(now);
     }
 
-    bool bit_any(uint8_t left, uint8_t right, uint8_t bit) {
-        return (left & (1u << bit)) || (right & (1u << bit));
-    }
-
     void add_warning(const char *labels[], int &count, const char *label) {
-        if (count < 8) labels[count++] = label;
-    }
-
-    void warning_line(int &y, const char *label, int scale, int step) {
-        fb_text(fb, 18, y, label, scale);
-        y += step;
-    }
-
-    bool status_page_active() {
-        return status_page;
+        if (count < 48) labels[count++] = label;
     }
 
     const char *fresh_label(uint32_t last_ms, uint32_t now, uint32_t timeout_ms) {
@@ -224,6 +224,34 @@ namespace {
         }
         status_line(y, buf, 2);
 
+        fb_vline(fb, 194, 39, 48, true);
+        const char *gps_status = state.gps_fix_ok ? "GPS OK" :
+                                 (state.gps_data_ok ? "GPS SEARCH" : "GPS NO DATA");
+        status_text(210, 39, gps_status, 1);
+        if (state.gps_fix_ok) {
+            std::snprintf(buf, sizeof(buf), "LAT %.5f", state.gps_latitude);
+            status_text(202, 60, buf, 1);
+            std::snprintf(buf, sizeof(buf), "LON %.5f", state.gps_longitude);
+            status_text(202, 73, buf, 1);
+        } else {
+            status_text(202, 60, "LAT --.-----", 1);
+            status_text(202, 73, "LON ---.-----", 1);
+        }
+
+        const unsigned lap = state.lap_count > 99 ? 99 : state.lap_count;
+        const unsigned minutes = (unsigned)((state.current_lap_ms / 60000UL) % 100UL);
+        const unsigned seconds = (unsigned)((state.current_lap_ms / 1000UL) % 60UL);
+        const unsigned centis = (unsigned)((state.current_lap_ms / 10UL) % 100UL);
+        std::snprintf(buf, sizeof(buf), "LAP %02u", lap);
+        status_text(214, 101, buf, 2);
+        if (state.gps_fix_ok) {
+            std::snprintf(buf, sizeof(buf), "%02u:%02u.%02u",
+                          minutes, seconds, centis);
+        } else {
+            std::snprintf(buf, sizeof(buf), "--:--.--");
+        }
+        status_text(206, 123, buf, 2);
+
         y += 3;
         draw_side_status(y, "LEFT", state.motor_temp, state.controller_temp,
                          state.bus_voltage, state.error1, state.error2, state.error3);
@@ -234,38 +262,71 @@ namespace {
     }
 
     void draw_warning_detail() {
-        const char *labels[8];
+        static const char *const left_labels[3][8] = {
+            {"L OVER CURRENT", "L OVER LOAD", "L OVER VOLT", "L LOW VOLT",
+             "L CTRL HOT", "L MOTOR HOT", "L MOTOR STALL", "L MOTOR PHASE"},
+            {"L MOTOR SENSOR", "L AUX SENSOR", "L ENCODER ALIGN", "L RUNAWAY",
+             "L MAIN ACCEL", "L AUX ACCEL", "L PRECHARGE", "L DC CONTACTOR"},
+            {"L POWER VALVE", "L CURRENT SENSOR", "L AUTO TUNE", "L RS485",
+             "L CAN", "L SOFTWARE", nullptr, nullptr}
+        };
+        static const char *const right_labels[3][8] = {
+            {"R OVER CURRENT", "R OVER LOAD", "R OVER VOLT", "R LOW VOLT",
+             "R CTRL HOT", "R MOTOR HOT", "R MOTOR STALL", "R MOTOR PHASE"},
+            {"R MOTOR SENSOR", "R AUX SENSOR", "R ENCODER ALIGN", "R RUNAWAY",
+             "R MAIN ACCEL", "R AUX ACCEL", "R PRECHARGE", "R DC CONTACTOR"},
+            {"R POWER VALVE", "R CURRENT SENSOR", "R AUTO TUNE", "R RS485",
+             "R CAN", "R SOFTWARE", nullptr, nullptr}
+        };
+        const uint8_t left_errors[3] = {state.error1, state.error2, state.error3};
+        const uint8_t right_errors[3] = {state.error1_r, state.error2_r, state.error3_r};
+        const char *labels[48];
         int count = 0;
         const uint32_t now = millis();
 
-        if (bit_any(state.error1, state.error1_r, 2)) add_warning(labels, count, "OVER VOLT");
-        if (bit_any(state.error1, state.error1_r, 3)) add_warning(labels, count, "LOW VOLT");
-        if (bit_any(state.error1, state.error1_r, 4)) add_warning(labels, count, "CTRL HOT");
-        if (bit_any(state.error1, state.error1_r, 5)) add_warning(labels, count, "MOTOR HOT");
-        if (state.error1 || state.error2 || state.error3) add_warning(labels, count, "LEFT FAULT");
-        if (state.error1_r || state.error2_r || state.error3_r) add_warning(labels, count, "RIGHT FAULT");
-        if (bit_any(state.error3, state.error3_r, 4) || can_link_warning_active(now)) {
-            add_warning(labels, count, "CAN ERR");
+        for (int group = 0; group < 3; ++group) {
+            for (int bit = 0; bit < 8; ++bit) {
+                if ((left_errors[group] & (1u << bit)) && left_labels[group][bit]) {
+                    add_warning(labels, count, left_labels[group][bit]);
+                }
+                if ((right_errors[group] & (1u << bit)) && right_labels[group][bit]) {
+                    add_warning(labels, count, right_labels[group][bit]);
+                }
+            }
         }
-        if (count == 0) add_warning(labels, count, "FAULT");
+        if (now >= CAN_STARTUP_GRACE_MS) {
+            if (frame_stale(state.controller_l_fb1_last_ms, now, CONTROLLER_FRAME_TIMEOUT_MS) ||
+                frame_stale(state.controller_l_fb2_last_ms, now, CONTROLLER_FRAME_TIMEOUT_MS)) {
+                add_warning(labels, count, "L CAN TIMEOUT");
+            }
+            if (frame_stale(state.controller_r_fb1_last_ms, now, CONTROLLER_FRAME_TIMEOUT_MS) ||
+                frame_stale(state.controller_r_fb2_last_ms, now, CONTROLLER_FRAME_TIMEOUT_MS)) {
+                add_warning(labels, count, "R CAN TIMEOUT");
+            }
+        }
+        if (vcu_status_stale(now)) add_warning(labels, count, "VCU CAN TIMEOUT");
 
-        fb_text(fb, 18, 14, "WARNING", 5);
+        if (count == 0) {
+            fb_text(fb, 40, 14, "WARNING", 5);
+            fb_text(fb, 40, 112, "NO ERROR", 5);
+            return;
+        }
 
-        int scale = 5;
-        int step = 48;
-        int y = count == 1 ? 112 : 78;
-        if (count >= 4) {
-            scale = 4;
-            step = 39;
+        fb_text(fb, 8, 5, "WARNING", 3);
+        int scale = count <= 6 ? 3 : (count <= 22 ? 2 : 1);
+        const int step = scale * 8 + 1;
+        const int rows = (count + 1) / 2;
+        const bool two_columns = count > 6;
+        const int rows_per_column = two_columns ? rows : count;
+        int y = scale == 1 ? 25 : 38;
+        if (!two_columns && count <= 3) {
             y = 76;
         }
-        if (count >= 6) {
-            scale = 3;
-            step = 30;
-            y = 74;
+        for (int i = 0; i < count; ++i) {
+            const int column = two_columns ? i / rows_per_column : 0;
+            const int row = two_columns ? i % rows_per_column : i;
+            fb_text(fb, column == 0 ? 8 : 164, y + row * step, labels[i], scale);
         }
-
-        for (int i = 0; i < count; ++i) warning_line(y, labels[i], scale, step);
     }
 
     bool read_regen_auto_enabled() {
@@ -279,42 +340,83 @@ namespace {
             status_touch_down = down;
             status_touch_last_ms = now;
             if (down) {
-                status_page = !status_page;
+                const TS_Point point = touch.getPoint();
+                // This panel's landscape X axis is electrically mirrored:
+                // lower raw X values correspond to the visible right half.
+                const bool right_half = point.x < 2048;
+                int page = static_cast<int>(display_page);
+                page = right_half ? (page + 1) % 3 : (page + 2) % 3;
+                display_page = static_cast<DisplayPage>(page);
             }
         }
     }
     void gps_lap_start_update() {
-        if (warning_active()) {
-            gps_laptimer::stop();
-            return;
-        }
-
-        warning_detail_page = false;
         const bool down = digitalRead(PIN_GPS_LAP_START) == LOW;
         const uint32_t now = millis();
         if (down != gps_lap_start_button_down && now - gps_lap_start_button_last_ms >= 50) {
             gps_lap_start_button_down = down;
             gps_lap_start_button_last_ms = now;
             if (down) {
-                gps_laptimer::start_at_current_fix();
+                if (!state.gps_data_ok) {
+                    gps_lap_feedback = GpsLapFeedback::NO_DATA;
+                } else {
+                    gps_lap_feedback = gps_laptimer::start_at_current_fix()
+                        ? GpsLapFeedback::SET : GpsLapFeedback::NO_FIX;
+                }
+                gps_lap_feedback_started_ms = now;
             }
         }
     }
 
-    void warning_detail_update() {
-        const bool warn = warning_active();
-        if (!warn) {
-            warning_detail_page = false;
+    void gps_fix_feedback_update() {
+        const bool fix_ok = state.gps_fix_ok;
+        if (fix_ok && !gps_fix_was_ok) {
+            gps_lap_feedback = GpsLapFeedback::FIX_ON;
+            gps_lap_feedback_started_ms = millis();
+        }
+        gps_fix_was_ok = fix_ok;
+    }
+
+    void draw_gps_lap_feedback() {
+        if (gps_lap_feedback == GpsLapFeedback::NONE) return;
+
+        const uint32_t now = millis();
+        if (now - gps_lap_feedback_started_ms >= GPS_LAP_FEEDBACK_MS) {
+            gps_lap_feedback = GpsLapFeedback::NONE;
             return;
         }
 
+        const char *label = "NO GPS FIX";
+        int text_x = 100;
+        if (gps_lap_feedback == GpsLapFeedback::SET) {
+            label = "LAP START SET";
+            text_x = 82;
+        } else if (gps_lap_feedback == GpsLapFeedback::NO_DATA) {
+            label = "NO GPS DATA";
+            text_x = 94;
+        } else if (gps_lap_feedback == GpsLapFeedback::FIX_ON) {
+            label = "GPS FIX ON";
+            text_x = 100;
+        }
+
+        constexpr int x = 68;
+        constexpr int y = 94;
+        constexpr int w = 184;
+        constexpr int h = 42;
+        fb_rect(fb, x, y, w, h, true, false);
+        fb_rect(fb, x, y, w, h, false, true);
+        status_text(text_x, y + 13, label, 2);
+    }
+
+    void warning_detail_update() {
         const bool down = digitalRead(PIN_WARNING_DETAIL) == LOW;
         const uint32_t now = millis();
         if (down != warning_detail_button_down && now - warning_detail_button_last_ms >= 50) {
             warning_detail_button_down = down;
             warning_detail_button_last_ms = now;
             if (down) {
-                warning_detail_page = !warning_detail_page;
+                display_page = display_page == DisplayPage::WARNING
+                    ? DisplayPage::SPEED : DisplayPage::WARNING;
             }
         }
     }
@@ -326,17 +428,19 @@ namespace {
         const bool right_speed_fresh =
             frame_fresh(state.controller_r_fb1_last_ms, now, CONTROLLER_FRAME_TIMEOUT_MS);
 
-        if (now >= CAN_STARTUP_GRACE_MS) {
-            if (left_speed_fresh && right_speed_fresh) {
-                state.speed_rpm = (absf(state.speed_rpm_l) + absf(state.speed_rpm_r)) * 0.5f;
-            } else if (left_speed_fresh) {
-                state.speed_rpm = absf(state.speed_rpm_l);
-            } else if (right_speed_fresh) {
-                state.speed_rpm = absf(state.speed_rpm_r);
-            } else {
-                state.speed_rpm = 0.0f;
-            }
+        if (left_speed_fresh && right_speed_fresh) {
+            state.speed_rpm = (absf(state.speed_rpm_l) + absf(state.speed_rpm_r)) * 0.5f;
+        } else if (left_speed_fresh) {
+            state.speed_rpm = absf(state.speed_rpm_l);
+        } else if (right_speed_fresh) {
+            state.speed_rpm = absf(state.speed_rpm_r);
+        } else {
+            state.speed_rpm = 0.0f;
         }
+
+        state.display_speed_valid = left_speed_fresh || right_speed_fresh;
+        state.display_speed_kph = state.display_speed_valid
+            ? motor_rpm_to_kph(state.speed_rpm) : 0.0f;
 
         if (frame_stale(state.vehicle_speed_last_rx_ms, now, VEHICLE_SPEED_TIMEOUT_MS)) {
             state.vehicle_speed_kph = 0.0f;
@@ -353,6 +457,7 @@ namespace {
 
 static void hmi_update() {
     refresh_can_timeouts();
+    gps_fix_feedback_update();
     gps_lap_start_update();
     warning_detail_update();
     status_touch_update();
@@ -381,21 +486,22 @@ static void bms_can_tx_update() { can_bus::send_bms_status(); }
 static void display_update() {
     fb.clear();
     const bool warn = warning_active();
-    if (status_page_active()) {
+    if (display_page == DisplayPage::STATUS) {
         draw_vehicle_status();
-    } else if (warn && warning_detail_page) {
+    } else if (display_page == DisplayPage::WARNING) {
         draw_warning_detail();
     } else {
-        widget_speed_draw(fb,    10,  10, (int)(state.vehicle_speed_kph + 0.5f));
-        widget_warnings_draw(fb, 248,  22, warn, state.hv_active);
-        widget_gear_draw(fb,     289,  16, gear_code(state.gear));
+        widget_speed_draw(fb,    10,  18, (int)(state.display_speed_kph + 0.5f));
+        widget_warnings_draw(fb, 272,  60, warn, state.hv_active);
+        widget_gear_draw(fb,     270,   8, gear_code(state.gear));
         const int soc_pct = state.soc_valid ? (int)(state.soc * 100.0f + 0.5f) : -1;
-        widget_battery_draw(fb, 285,  48, soc_pct);
-        widget_laptime_draw(fb,  10, 136, state.lap_count,
+        widget_battery_draw(fb, 270,  86, soc_pct);
+        widget_laptime_draw(fb,  18, 171, state.lap_count,
                             state.current_lap_ms, state.gps_fix_ok);
-        widget_best_lap_draw(fb, 205, 207, state.best_lap_count,
+        widget_best_lap_draw(fb, 18, 199, state.best_lap_count,
                              state.best_lap_ms);
     }
+    draw_gps_lap_feedback();
     display_blit::show(fb, warn);
 }
 
@@ -423,4 +529,5 @@ void modules_init() {
     digitalWrite(PIN_TOUCH_CS, HIGH);
     display_blit::begin();
     touch.begin();
+    touch.setRotation(1);
 }

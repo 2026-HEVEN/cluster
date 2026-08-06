@@ -15,7 +15,7 @@ void test_laptime_draws(void) {
     fb.clear();
     widget_laptime_draw(fb, 0, 0, 3, 83420, true);
     TEST_ASSERT_TRUE(lit_in(fb, 0, 0, 200, 60) > 0);
-    TEST_ASSERT_TRUE(lit_in(fb, 0, 31, 200, 28) > 0);
+    TEST_ASSERT_TRUE(lit_in(fb, 95, 0, 100, 16) > 0);
 }
 
 void test_laptime_waiting_still_draws_placeholder(void) {
@@ -23,7 +23,7 @@ void test_laptime_waiting_still_draws_placeholder(void) {
     fb.clear();
     widget_laptime_draw(fb, 0, 0, 0, 99999, false);
     TEST_ASSERT_TRUE(lit_in(fb, 0, 0, 200, 60) > 0);
-    TEST_ASSERT_TRUE(lit_in(fb, 0, 31, 200, 28) > 0);
+    TEST_ASSERT_TRUE(lit_in(fb, 95, 0, 100, 16) > 0);
 }
 
 void test_best_lap_draws_record(void) {

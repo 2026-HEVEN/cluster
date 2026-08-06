@@ -32,8 +32,8 @@ pio run -e esp32dev -t upload
 > 🧪 **테스트가 처음이거나 Windows 사용자라면** → 노션 [펌웨어 테스트 실행 방법](https://www.notion.so/390913e532e68199a9b5e340b73e9e71) 참고. AI에 복붙할 프롬프트 + "이렇게 나오면 성공" 출력 예시 + Windows(WSL2/MinGW) 셋업까지 있습니다. (보드 업로드는 Windows도 그냥 되고, `native` 단위테스트만 host 컴파일러가 필요해요.)
 
 > ℹ️ 모터컨트롤러 값은 MCU→VCU 피드백 프레임을 Cluster가 같은 CAN 버스에서 수신합니다. BMS SOC는 `LWS-1608` BLE BMS에 Cluster ESP32가 직접 연결해 표시용 telemetry로만 읽습니다.
-> ℹ️ 계기판 속도 표시는 VCU가 내부 `vehicle_speed_compute()`로 산출한 단일 차량속도 프레임 `0x1803C0D0`을 사용합니다. 이 값은 전륜 기준 보정 로직을 거친 `km/h x 10` 값이며, Cluster는 다시 네 바퀴 평균을 내지 않습니다.
-> ℹ️ GPS Lap Start는 현재 GNSS fix 위치를 출발점으로 저장합니다. 이후 VCU 단일 차량속도 `0.5 km/h` 초과가 `150ms` 이상 지속되면 랩타이머를 시작하고, 다시 출발점 반경 `0.75m` 안으로 들어오면 랩을 갱신합니다.
+> ℹ️ 계기판 속도 표시는 좌·우 모터 컨트롤러 RPM 피드백을 평균낸 뒤 타이어 지름 0.4597m와 감속비 3.72:1로 환산합니다. 한쪽만 연결되면 수신되는 쪽의 RPM을 사용합니다. VCU의 VSS 프레임 `0x1803C0D0`도 기존 방식대로 별도 수신하지만 LCD 표시값과 분리되어 있습니다. GPS 랩 타이머는 두 차속값과 무관하게 GPS 위치만 사용합니다.
+> ℹ️ GPS Lap Start는 현재 GNSS fix 위치를 출발점으로 저장하고 기존 랩 기록을 초기화합니다. 차량이 GPS 시작점에서 `5m` 이상 이동하면 랩타이머를 시작하며, 이후 시작점 반경 `3m` 안으로 다시 들어오면 랩을 갱신합니다. 랩 판정은 VSS 및 모터 컨트롤러 RPM 차속과 무관하게 GPS 위치만 사용합니다.
 
 
 ## 현재 하드웨어 핀맵
@@ -49,12 +49,12 @@ pio run -e esp32dev -t upload
 | LCD ILI9341 | MOSI | GPIO19 | ESP32 -> LCD/Touch |
 | LCD / Touch SPI | MISO / T_DO | GPIO22 | Touch controller -> ESP32, LCD SDO readback optional |
 | LCD Touch XPT2046 | T_CS | GPIO23 | Touch chip select, 터치 시 Car Check 화면 토글 |
-| GPS ZED-F9P | RX | GPIO35 | GNSS UART TX -> ESP32, 38400 baud NMEA RMC. GPS 탈착 가능 구조면 10k pull-up to 3.3V 권장 |
+| GPS ZED-F9P | RX | GPIO35 | GNSS UART TX -> ESP32, 460800 baud NMEA RMC. GPS 탈착 가능 구조면 10k pull-up to 3.3V 권장 |
 | HMI | Paddock | GPIO33 | 토글 스위치, INPUT_PULLUP, ON=LOW |
 | HMI | TC | GPIO25 | 토글 스위치, INPUT_PULLUP, ON=LOW |
 | HMI | Regen Auto | GPIO27 | 토글 스위치, INPUT_PULLUP, ON=LOW: VCU 자동 회생 허용, OFF=회생제동 OFF 요청 |
 | HMI | Debug | GPIO26 | 토글 스위치, INPUT_PULLUP, ON=LOW |
-| HMI | GPS Lap Start | GPIO32 | 순간 푸시 버튼, 정상 상태에서 GPS lap start 저장 |
+| HMI | GPS Lap Start | GPIO32 | 순간 푸시 버튼, CAN 상태와 무관하게 현재 GPS 위치를 lap start로 저장 |
 | HMI | Warning Detail | GPIO13 | 순간 푸시 버튼, warning 상세 화면 토글 |
 
 회생제동 입력은 기존 4단 로터리 셀렉터에서 `Regen Auto` 토글 1개로 변경했다. GPIO27 토글이 ON(LOW)이면 VCU 자동 회생제동 허용을 요청하고, OFF(HIGH)이면 회생제동 OFF를 요청한다. 실제 회생 가능 여부와 전류 제한은 VCU가 배터리 전압/SOC/고장 상태를 기준으로 최종 판단한다.

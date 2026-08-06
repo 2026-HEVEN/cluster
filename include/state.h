@@ -69,6 +69,8 @@ struct ClusterState {
     // GPS lap timer
     bool     gps_fix_ok     = false;
     uint32_t gps_last_rx_ms = 0;  // last valid GPS/NMEA sentence reception
+    uint32_t gps_pps_last_ms = 0; // last GNSS PPS rising edge
+    uint32_t gps_pps_count   = 0; // PPS edge counter for diagnostics
     uint8_t  lap_count      = 0;
     uint32_t current_lap_ms = 0;
     uint32_t last_lap_ms    = 0;
@@ -77,3 +79,4 @@ struct ClusterState {
 };
 
 extern ClusterState state;   // defined in core/app_wiring.cpp
+

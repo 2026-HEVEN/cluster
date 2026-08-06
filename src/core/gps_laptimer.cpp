@@ -11,6 +11,7 @@ namespace gps_laptimer {
 namespace {
 constexpr int PIN_GPS_RX = 35;      // GPS TX2 -> ESP32 GPIO35
 constexpr int PIN_GPS_TX = 14;      // ESP32 GPIO14 -> GPS RX2 for RTCM3 corrections
+constexpr int PIN_GNSS_PPS = 33;    // ZED-F9P PPS -> ESP32 GPIO33
 constexpr uint32_t GPS_BAUD = 460800;
 constexpr int GPS_LINE_MAX = 96;
 constexpr int GGA_LINE_MAX = 96;
@@ -29,6 +30,17 @@ int line_len = 0;
 char last_gga[GGA_LINE_MAX];
 uint32_t last_gga_time_ms = 0;
 uint8_t gga_fix_quality = 0;
+volatile uint32_t pps_last_ms_isr = 0;
+volatile uint32_t pps_count_isr = 0;
+
+#ifndef IRAM_ATTR
+#define IRAM_ATTR
+#endif
+
+void IRAM_ATTR pps_isr() {
+    pps_last_ms_isr = millis();
+    ++pps_count_isr;
+}
 
 bool have_start = false;
 bool lap_armed = false;
@@ -259,6 +271,8 @@ void consume_char(char c) {
 }
 
 void begin() {
+    pinMode(PIN_GNSS_PPS, INPUT);
+    attachInterrupt(digitalPinToInterrupt(PIN_GNSS_PPS), pps_isr, RISING);
     gps_serial.begin(GPS_BAUD, SERIAL_8N1, PIN_GPS_RX, PIN_GPS_TX);
     Serial.print("[GPS] UART2 RX GPIO");
     Serial.print(PIN_GPS_RX);
@@ -266,9 +280,18 @@ void begin() {
     Serial.print(PIN_GPS_TX);
     Serial.print(" baud ");
     Serial.println(GPS_BAUD);
+    Serial.print("[GPS] PPS GPIO");
+    Serial.println(PIN_GNSS_PPS);
 }
 
 void poll() {
+    noInterrupts();
+    const uint32_t pps_ms = pps_last_ms_isr;
+    const uint32_t pps_count_snapshot = pps_count_isr;
+    interrupts();
+    state.gps_pps_last_ms = pps_ms;
+    state.gps_pps_count = pps_count_snapshot;
+
     while (gps_serial.available() > 0) {
         consume_char((char)gps_serial.read());
     }
@@ -329,6 +352,14 @@ uint32_t last_nmea_ms() {
     return state.gps_last_rx_ms;
 }
 
+uint32_t last_pps_ms() {
+    return state.gps_pps_last_ms;
+}
+
+uint32_t pps_count() {
+    return state.gps_pps_count;
+}
+
 uint8_t fix_quality() {
     return gga_fix_quality;
 }
@@ -343,3 +374,4 @@ const char *rtk_status_label() {
     }
 }
 }
+

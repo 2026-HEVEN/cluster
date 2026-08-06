@@ -27,7 +27,7 @@ ClusterState state;
 namespace {
     // Input pins (direct GPIO; if pin count runs short, an io_expander can be
     // reintroduced HERE only, without touching any module).
-    constexpr int PIN_PADDOCK = 33;
+    constexpr int PIN_PADDOCK = 36; // SVP/GPIO36; external 10k pull-up required on PCB
     constexpr int PIN_TC = 25;
     constexpr int PIN_REGEN_AUTO = 27; // regen auto toggle; ON=LOW, OFF=request regen disabled
     constexpr int PIN_DEBUG = 26;
@@ -439,7 +439,7 @@ Task g_tasks[] = {
 const int G_TASK_COUNT = sizeof(g_tasks) / sizeof(g_tasks[0]);
 
 void modules_init() {
-    pinMode(PIN_PADDOCK, INPUT_PULLUP);
+    pinMode(PIN_PADDOCK, INPUT); // GPIO36 has no internal pull-up; PCB provides external 10k
     pinMode(PIN_TC, INPUT_PULLUP);
     pinMode(PIN_REGEN_AUTO, INPUT_PULLUP);
     pinMode(PIN_DEBUG, INPUT_PULLUP);
@@ -454,3 +454,4 @@ void modules_init() {
     touch.begin();
     display_blit::begin();
 }
+

@@ -183,6 +183,9 @@ void log_status(uint32_t now) {
     Serial.print("ms GPS=");
     if (gps_laptimer::last_nmea_ms() == 0) Serial.print("WAIT");
     else Serial.print(now - gps_laptimer::last_nmea_ms());
+    Serial.print("ms PPS=");
+    if (gps_laptimer::last_pps_ms() == 0) Serial.print("WAIT");
+    else Serial.print(now - gps_laptimer::last_pps_ms());
     Serial.print("ms RTK=");
     Serial.println(gps_laptimer::rtk_status_label());
 }
@@ -237,3 +240,4 @@ uint32_t last_rtcm_ms() {
     return last_rtcm_time_ms;
 }
 }
+

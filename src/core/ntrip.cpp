@@ -24,6 +24,8 @@ uint32_t last_gga_sent_ms = 0;
 uint32_t last_status_log_ms = 0;
 uint32_t total_rtcm_bytes = 0;
 uint32_t last_rtcm_time_ms = 0;
+bool wifi_connected_logged = false;
+bool ntrip_connected_logged = false;
 
 bool configured() {
     return ntrip_config::WIFI_SSID[0] != '\0' &&
@@ -73,6 +75,7 @@ void connect_ntrip(uint32_t now) {
     header_buffer = "";
     header_complete = false;
     stream_ok = false;
+    ntrip_connected_logged = false;
 
     Serial.print("[NTRIP] Connecting ");
     Serial.print(ntrip_config::HOST);
@@ -129,7 +132,12 @@ void process_header() {
             header_complete = true;
             stream_ok = header_has_success();
             if (stream_ok) {
-                Serial.println("[NTRIP] RTCM stream connected");
+                if (!ntrip_connected_logged) {
+                    Serial.println("[NTRIP] NTRIP connected");
+                    Serial.print("[NTRIP] Mount point = ");
+                    Serial.println(ntrip_config::MOUNTPOINT);
+                    ntrip_connected_logged = true;
+                }
             } else {
                 close_bad_stream();
             }
@@ -175,12 +183,12 @@ void log_status(uint32_t now) {
     Serial.print(WiFi.status() == WL_CONNECTED ? "OK" : "WAIT");
     Serial.print(" NTRIP=");
     Serial.print(stream_ok ? "OK" : "WAIT");
-    Serial.print(" RTCM=");
+    Serial.print(" RTCM received bytes=");
     Serial.print(total_rtcm_bytes);
-    Serial.print(" lastRTCM=");
+    Serial.print(" Last RTCM age=");
     if (last_rtcm_time_ms == 0) Serial.print("---");
     else Serial.print(now - last_rtcm_time_ms);
-    Serial.print("ms GPS=");
+    Serial.print("ms GPS NMEA receiving=");
     if (gps_laptimer::last_nmea_ms() == 0) Serial.print("WAIT");
     else Serial.print(now - gps_laptimer::last_nmea_ms());
     Serial.print("ms PPS=");
@@ -210,11 +218,21 @@ void poll() {
 
     const uint32_t now = millis();
     connect_wifi(now);
+    if (WiFi.status() == WL_CONNECTED) {
+        if (!wifi_connected_logged) {
+            Serial.println("[NTRIP] Wi-Fi connected");
+            wifi_connected_logged = true;
+        }
+    } else {
+        wifi_connected_logged = false;
+        ntrip_connected_logged = false;
+    }
     connect_ntrip(now);
 
     if (!client.connected()) {
         stream_ok = false;
         header_complete = false;
+        ntrip_connected_logged = false;
     } else if (!header_complete) {
         process_header();
     }

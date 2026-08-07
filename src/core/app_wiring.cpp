@@ -61,7 +61,7 @@ namespace {
     bool gps_fix_was_ok = false;
     bool ntrip_started = false;
 
-    int gear_code(uint8_t gear) { return gear <= 3 ? gear : -1; }
+    int gear_code(uint8_t gear) { return gear <= 3 ? gear : 0; }
 
     float absf(float v) { return v < 0.0f ? -v : v; }
 
@@ -240,11 +240,9 @@ namespace {
                                        now, CONTROLLER_FRAME_TIMEOUT_MS));
         status_line(y, buf, 2);
 
-        const bool vcu_status_known = frame_fresh(state.vcu_cluster_status_last_ms,
-                                                  now, VCU_STATUS_TIMEOUT_MS);
         std::snprintf(buf, sizeof(buf), "VCU %s HV %s",
                       fresh_label(state.vcu_cluster_status_last_ms, now, VCU_STATUS_TIMEOUT_MS),
-                      vcu_status_known ? on_off(state.hv_active) : "--");
+                      on_off(state.hv_active));
         status_line(y, buf, 2);
 
         const bool bms_ok = state.bms_ble_connected && state.bms_last_rx_ms != 0;
@@ -465,6 +463,9 @@ static void hmi_update() {
     sw.regen_auto_enabled = read_regen_auto_enabled();
     sw.debug_enabled = digitalRead(PIN_DEBUG) == LOW;
     ClusterCommand cmd = hmi_compute(sw);
+    if (!state.gear_from_can) {
+        state.gear = 0;
+    }
     state.paddock = cmd.paddock;
     state.tc_enabled = cmd.tc_enabled;
     state.regen_auto_enabled = cmd.regen_auto_enabled;
@@ -495,9 +496,9 @@ static void display_update() {
         draw_warning_detail();
     } else {
         widget_speed_draw(fb,    10,  18, (int)(state.vehicle_speed_kph + 0.5f));
-        widget_warnings_draw(fb, 272,  46, warn, state.regen_auto_enabled);
-        widget_gear_draw(fb,     270,   8,
-                         state.gear_from_can ? gear_code(state.gear) : -1);
+        widget_warnings_draw(fb, 272,  60, warn, state.hv_active,
+                             state.regen_auto_enabled);
+        widget_gear_draw(fb,     270,   8, gear_code(state.gear));
         const int soc_pct = state.soc_valid ? (int)(state.soc * 100.0f + 0.5f) : -1;
         widget_battery_draw(fb, 270,  86, soc_pct);
         widget_laptime_draw(fb,  18, 171, state.lap_count,

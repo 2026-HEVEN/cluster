@@ -7,16 +7,21 @@ static int lit_in(FrameBuffer &fb, int x0, int y0, int w, int h) {
     return n;
 }
 void test_clear_draws_labels_and_empty_boxes(void) {
-    FrameBuffer fb; fb.clear(); widget_warnings_draw(fb, 0, 0, false, false);
-    TEST_ASSERT_TRUE(lit_in(fb, 0, 0, 34, 12) > 0);
+    FrameBuffer fb; fb.clear(); widget_warnings_draw(fb, 0, 14, false, false, false);
+    TEST_ASSERT_TRUE(lit_in(fb, 0, 0, 34, 24) > 0);
+    TEST_ASSERT_TRUE(lit_in(fb, 18, 14, 10, 10) < 100);
     TEST_ASSERT_TRUE(lit_in(fb, 24, 0, 10, 10) < 100);
 }
 void test_fault_does_not_draw_warn_box(void) {
-    FrameBuffer fb; fb.clear(); widget_warnings_draw(fb, 0, 0, true, false);
-    TEST_ASSERT_TRUE(lit_in(fb, 0, 13, 42, 11) == 0);
+    FrameBuffer fb; fb.clear(); widget_warnings_draw(fb, 0, 14, true, false, false);
+    TEST_ASSERT_TRUE(lit_in(fb, 0, 27, 42, 11) == 0);
+}
+void test_hv_fills_hv_box(void) {
+    FrameBuffer fb; fb.clear(); widget_warnings_draw(fb, 0, 14, false, true, false);
+    TEST_ASSERT_EQUAL_INT(100, lit_in(fb, 18, 14, 10, 10));
 }
 void test_regen_fills_regen_box(void) {
-    FrameBuffer fb; fb.clear(); widget_warnings_draw(fb, 0, 0, false, true);
+    FrameBuffer fb; fb.clear(); widget_warnings_draw(fb, 0, 14, false, false, true);
     TEST_ASSERT_EQUAL_INT(100, lit_in(fb, 24, 0, 10, 10));
 }
 
@@ -26,6 +31,7 @@ int main(int, char **) {
     UNITY_BEGIN();
     RUN_TEST(test_clear_draws_labels_and_empty_boxes);
     RUN_TEST(test_fault_does_not_draw_warn_box);
+    RUN_TEST(test_hv_fills_hv_box);
     RUN_TEST(test_regen_fills_regen_box);
     return UNITY_END();
 }

@@ -40,6 +40,7 @@ namespace {
     constexpr uint32_t VEHICLE_SPEED_TIMEOUT_MS = 300;
     constexpr uint32_t GPS_SIGNAL_TIMEOUT_MS = 3000;
     constexpr uint32_t LAP_NOTICE_MS = 1500;
+    constexpr uint32_t NTRIP_START_DELAY_MS = 5000;
     constexpr float WHEEL_DIAMETER_M = 0.4597f;
     constexpr float MOTOR_TO_WHEEL_RATIO = 3.72f;
     constexpr float PI_F = 3.14159265f;
@@ -58,6 +59,7 @@ namespace {
     const char *lap_notice_label = nullptr;
     uint32_t lap_notice_until_ms = 0;
     bool gps_fix_was_ok = false;
+    bool ntrip_started = false;
 
     int gear_code(uint8_t gear) { return gear <= 3 ? gear : 0; }
 
@@ -398,15 +400,19 @@ namespace {
 
     void draw_lap_notice(uint32_t now) {
         if (!lap_notice_label || now > lap_notice_until_ms) return;
-        fb_rect(fb, 40, 84, 240, 62, true, false);
-        fb_rect(fb, 42, 86, 236, 58, false, true);
-        fb_rect(fb, 44, 88, 232, 54, false, true);
+        constexpr int box_x = 68;
+        constexpr int box_y = 94;
+        constexpr int box_w = 184;
+        constexpr int box_h = 42;
         const int scale = 2;
         int len = 0;
         while (lap_notice_label[len]) ++len;
         int x = 160 - (len * 6 * scale) / 2;
-        if (x < 8) x = 8;
-        fb_text(fb, x, 109, lap_notice_label, scale);
+        if (x < box_x + 8) x = box_x + 8;
+
+        fb_rect(fb, box_x, box_y, box_w, box_h, true, false);
+        fb_rect(fb, box_x, box_y, box_w, box_h, false, true);
+        fb_text(fb, x, box_y + 14, lap_notice_label, scale);
     }
 
     void refresh_can_timeouts() {
@@ -470,7 +476,15 @@ static void hmi_update() {
 
 static void can_rx_update() { can_bus::poll_rx(); }
 static void gps_update() { gps_laptimer::poll(); }
-static void ntrip_update() { ntrip::poll(); }
+static void ntrip_update() {
+    const uint32_t now = millis();
+    if (!ntrip_started) {
+        if (now < NTRIP_START_DELAY_MS) return;
+        ntrip::begin();
+        ntrip_started = true;
+    }
+    ntrip::poll();
+}
 static void bms_update() { bms_ble::poll(); }
 static void bms_can_tx_update() { can_bus::send_bms_status(); }
 static void display_update() {
@@ -482,7 +496,8 @@ static void display_update() {
         draw_warning_detail();
     } else {
         widget_speed_draw(fb,    10,  18, (int)(state.vehicle_speed_kph + 0.5f));
-        widget_warnings_draw(fb, 272,  60, warn, state.hv_active);
+        widget_warnings_draw(fb, 272,  60, warn, state.hv_active,
+                             state.regen_auto_enabled);
         widget_gear_draw(fb,     270,   8, gear_code(state.gear));
         const int soc_pct = state.soc_valid ? (int)(state.soc * 100.0f + 0.5f) : -1;
         widget_battery_draw(fb, 270,  86, soc_pct);
@@ -507,6 +522,13 @@ Task g_tasks[] = {
 const int G_TASK_COUNT = sizeof(g_tasks) / sizeof(g_tasks[0]);
 
 void modules_init() {
+    pinMode(PIN_TOUCH_CS, OUTPUT);
+    digitalWrite(PIN_TOUCH_CS, HIGH);
+    display_blit::begin();
+    display_update();
+    touch.begin();
+    touch.setRotation(1);
+
     pinMode(PIN_PADDOCK, INPUT); // GPIO36 has no internal pull-up; PCB provides external 10k
     pinMode(PIN_TC, INPUT_PULLUP);
     pinMode(PIN_REGEN_AUTO, INPUT_PULLUP);
@@ -515,12 +537,6 @@ void modules_init() {
     pinMode(PIN_WARNING_DETAIL, INPUT_PULLUP);
     can_bus::begin();
     gps_laptimer::begin();
-    ntrip::begin();
     bms_ble::begin();
-    pinMode(PIN_TOUCH_CS, OUTPUT);
-    digitalWrite(PIN_TOUCH_CS, HIGH);
-    touch.begin();
-    touch.setRotation(1);
-    display_blit::begin();
 }
 

@@ -176,6 +176,9 @@ float distance_m(double lat1, double lon1, double lat2, double lon2) {
 void update_lap(double lat, double lon) {
     const uint32_t now = millis();
     state.gps_fix_ok = true;
+    state.gps_data_ok = true;
+    state.gps_latitude = lat;
+    state.gps_longitude = lon;
     latest_fix = true;
     latest_lat = lat;
     latest_lon = lon;
@@ -251,6 +254,7 @@ void consume_char(char c) {
         if (line_len > 6) {
             if (line[0] == '$' && checksum_ok(line)) {
                 state.gps_last_rx_ms = millis();
+                state.gps_data_ok = true;
             }
             char gga_copy[GPS_LINE_MAX];
             std::strncpy(gga_copy, line, sizeof(gga_copy) - 1);
@@ -301,6 +305,9 @@ void poll() {
         (state.gps_last_rx_ms != 0 && now - state.gps_last_rx_ms > GPS_FIX_TIMEOUT_MS)) {
         state.gps_fix_ok = false;
         latest_fix = false;
+    }
+    if (state.gps_last_rx_ms == 0 || now - state.gps_last_rx_ms > GPS_FIX_TIMEOUT_MS) {
+        state.gps_data_ok = false;
     }
 
     update_departure_timer(now);

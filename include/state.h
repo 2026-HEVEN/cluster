@@ -68,6 +68,9 @@ struct ClusterState {
     uint16_t bms_cycles        = 0;
     // GPS lap timer
     bool     gps_fix_ok     = false;
+    bool     gps_data_ok    = false;
+    double   gps_latitude   = 0.0;
+    double   gps_longitude  = 0.0;
     uint32_t gps_last_rx_ms = 0;  // last valid GPS/NMEA sentence reception
     uint32_t gps_pps_last_ms = 0; // last GNSS PPS rising edge
     uint32_t gps_pps_count   = 0; // PPS edge counter for diagnostics

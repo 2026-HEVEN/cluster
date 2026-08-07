@@ -70,7 +70,7 @@ void render_framebuffer(std::vector<uint8_t> &rgb, const FrameBuffer &fb,
 void draw_normal_layout(FrameBuffer &fb, bool warning) {
     fb.clear();
     widget_speed_draw(fb,    10,  18, 160);
-    widget_warnings_draw(fb, 272,  60, warning, true, true);
+    widget_warnings_draw(fb, 272,  46, warning, true);
     widget_gear_draw(fb,     270,   8, 2 /* D */);
     widget_battery_draw(fb, 270,  86, -1);
     widget_laptime_draw(fb,  18, 171, 3, 85670, true);

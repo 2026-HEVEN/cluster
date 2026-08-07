@@ -40,6 +40,9 @@ namespace {
     constexpr uint32_t VEHICLE_SPEED_TIMEOUT_MS = 300;
     constexpr uint32_t GPS_SIGNAL_TIMEOUT_MS = 3000;
     constexpr uint32_t LAP_NOTICE_MS = 1500;
+    constexpr float WHEEL_DIAMETER_M = 0.4597f;
+    constexpr float MOTOR_TO_WHEEL_RATIO = 3.72f;
+    constexpr float PI_F = 3.14159265f;
     constexpr int TOUCH_RAW_MID_X = 2048;
     constexpr bool TOUCH_RIGHT_IS_NEXT = true;
     enum DisplayPage : uint8_t { PAGE_MAIN = 0, PAGE_CAR_CHECK = 1, PAGE_WARNING_DETAIL = 2 };
@@ -59,6 +62,11 @@ namespace {
     int gear_code(uint8_t gear) { return gear <= 3 ? gear : 0; }
 
     float absf(float v) { return v < 0.0f ? -v : v; }
+
+    float motor_rpm_to_kph(float motor_rpm) {
+        return (absf(motor_rpm) / MOTOR_TO_WHEEL_RATIO) *
+               (PI_F * WHEEL_DIAMETER_M) * 0.06f;
+    }
 
     bool frame_fresh(uint32_t last_ms, uint32_t now, uint32_t timeout_ms) {
         return last_ms != 0 && (now - last_ms) <= timeout_ms;
@@ -408,16 +416,20 @@ namespace {
         const bool right_speed_fresh =
             frame_fresh(state.controller_r_fb1_last_ms, now, CONTROLLER_FRAME_TIMEOUT_MS);
 
-        if (now >= CAN_STARTUP_GRACE_MS) {
-            if (left_speed_fresh && right_speed_fresh) {
-                state.speed_rpm = (absf(state.speed_rpm_l) + absf(state.speed_rpm_r)) * 0.5f;
-            } else if (left_speed_fresh) {
-                state.speed_rpm = absf(state.speed_rpm_l);
-            } else if (right_speed_fresh) {
-                state.speed_rpm = absf(state.speed_rpm_r);
-            } else {
-                state.speed_rpm = 0.0f;
-            }
+        if (left_speed_fresh && right_speed_fresh) {
+            state.speed_rpm = (absf(state.speed_rpm_l) + absf(state.speed_rpm_r)) * 0.5f;
+        } else if (left_speed_fresh) {
+            state.speed_rpm = absf(state.speed_rpm_l);
+        } else if (right_speed_fresh) {
+            state.speed_rpm = absf(state.speed_rpm_r);
+        } else if (now >= CAN_STARTUP_GRACE_MS) {
+            state.speed_rpm = 0.0f;
+        }
+
+        if (left_speed_fresh || right_speed_fresh) {
+            state.vehicle_speed_kph = motor_rpm_to_kph(state.speed_rpm);
+            state.vehicle_speed_valid = true;
+            state.vehicle_speed_last_rx_ms = now;
         }
 
         if (frame_stale(state.vehicle_speed_last_rx_ms, now, VEHICLE_SPEED_TIMEOUT_MS)) {

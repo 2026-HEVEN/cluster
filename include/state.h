@@ -27,8 +27,8 @@ struct ClusterState {
     uint32_t controller_l_fb2_last_ms = 0;
     // Controller_R mirror of the above (dual motor — see CAN_PROTOCOL.md §7)
     float    speed_rpm_r    = 0.0f;
-    // Vehicle speed received from VCU vehicle_speed_compute().
-    // This is the display/lap-timer source; Cluster does not recompute wheel averages.
+    // Display/lap-timer speed source. Temporary bench/vehicle test mode derives this
+    // from motor-controller RPM until wheel speed sensors are available.
     float    vehicle_speed_kph = 0.0f;
     bool     vehicle_speed_valid = false;
     uint32_t vehicle_speed_last_rx_ms = 0;

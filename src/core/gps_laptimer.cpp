@@ -12,7 +12,7 @@ namespace {
 constexpr int PIN_GPS_RX = 35;      // GPS TX2 -> ESP32 GPIO35
 constexpr int PIN_GPS_TX = 14;      // ESP32 GPIO14 -> GPS RX2 for RTCM3 corrections
 constexpr int PIN_GNSS_PPS = 33;    // ZED-F9P PPS -> ESP32 GPIO33
-constexpr uint32_t GPS_BAUD = 460800;
+constexpr uint32_t GPS_BAUD = 115200;
 constexpr int GPS_LINE_MAX = 96;
 constexpr int GGA_LINE_MAX = 96;
 constexpr float LAP_TRIGGER_RADIUS_M = 2.0f;

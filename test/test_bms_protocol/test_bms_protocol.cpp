@@ -7,15 +7,22 @@ void put_u16le(uint8_t *d, uint16_t value) {
     d[1] = (uint8_t)(value >> 8);
 }
 
+void put_u32le(uint8_t *d, uint32_t value) {
+    d[0] = (uint8_t)(value & 0xFF);
+    d[1] = (uint8_t)((value >> 8) & 0xFF);
+    d[2] = (uint8_t)((value >> 16) & 0xFF);
+    d[3] = (uint8_t)(value >> 24);
+}
+
 void make_summary_frame(uint8_t frame[32]) {
     for (int i = 0; i < 32; ++i) frame[i] = 0;
     frame[0] = 0x3A;
     frame[1] = 0x16;
     frame[2] = 0x2A;
-    put_u16le(frame + 8, 50000);          // 50.000 V
-    put_u16le(frame + 10, (uint16_t)-1234); // -1.234 A
+    put_u32le(frame + 4, (uint32_t)(int32_t)-1234); // -1.234 A
+    put_u32le(frame + 8, 50000);                    // 50.000 V
     frame[12] = 31;
-    put_u16le(frame + 16, 12345);
+    put_u32le(frame + 16, 72345);
     frame[24] = 78;
     frame[25] = 96;
     put_u16le(frame + 26, 321);
@@ -39,7 +46,7 @@ void test_decodes_summary_example(void) {
     TEST_ASSERT_FLOAT_WITHIN(0.001f, 50.000f, summary.pack_voltage_v);
     TEST_ASSERT_FLOAT_WITHIN(0.001f, -1.234f, summary.current_a);
     TEST_ASSERT_EQUAL_INT(31, summary.temp_c);
-    TEST_ASSERT_EQUAL_UINT32(12345, summary.remaining_mah);
+    TEST_ASSERT_EQUAL_UINT32(72345, summary.remaining_mah);
     TEST_ASSERT_EQUAL_UINT8(78, summary.soc_pct);
     TEST_ASSERT_EQUAL_UINT8(96, summary.soh_pct);
     TEST_ASSERT_EQUAL_UINT16(321, summary.cycles);

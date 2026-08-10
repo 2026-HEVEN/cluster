@@ -49,7 +49,7 @@ pio run -e esp32dev -t upload
 | LCD ILI9341 | MOSI | GPIO19 | ESP32 -> LCD/Touch |
 | LCD / Touch SPI | MISO / T_DO | GPIO22 | Touch controller -> ESP32, LCD SDO readback optional |
 | LCD Touch XPT2046 | T_CS | GPIO23 | Touch chip select. 오른쪽 터치=다음 페이지, 왼쪽 터치=이전 페이지 |
-| GPS ZED-F9P | RX | GPIO35 | ZED-F9P TX2 -> ESP32, 460800 baud NMEA/UBX 수신 |
+| GPS ZED-F9P | RX | GPIO35 | ZED-F9P TX2 -> ESP32, 115200 baud NMEA/UBX 수신 |
 | GPS ZED-F9P | TX | GPIO14 | ESP32 -> ZED-F9P RX2, NTRIP RTCM3 보정 데이터 송신 |
 | HMI | Paddock | GPIO33 | 토글 스위치, INPUT_PULLUP, ON=LOW |
 | HMI | TC | GPIO25 | 토글 스위치, INPUT_PULLUP, ON=LOW |
@@ -59,6 +59,8 @@ pio run -e esp32dev -t upload
 | HMI | Warning Detail | GPIO13 | 예비 입력. 현재 warning 상세 화면은 LCD 터치 페이지 3에서 표시 |
 
 GPS TX2는 PCB에서 분기해 Cluster ESP32 `GPIO35`와 TMA-1 `GPS_RX`에 동시에 넣을 수 있다. TMA-1 `GPS_TX`는 ZED-F9P RX2에 연결하지 않는다.
+
+Cluster는 부팅 시 ZED-F9P UART2가 460800 baud로 설정되어 있더라도 UBX 설정으로 115200 baud로 낮춘 뒤 통신한다. NMEA가 끊기면 115200 baud 복구를 다시 시도하므로, 같은 TX2에 연결된 TMA-1도 115200 baud로 유지할 수 있다.
 
 RTK 사용 시 Cluster ESP32가 Wi-Fi로 NTRIP caster에 접속하고, 수신한 RTCM3 바이트를 가공 없이 `GPIO14` UART TX로 ZED-F9P RX2에 전달한다. 실제 Wi-Fi/NTRIP 계정정보는 `include/ntrip_secrets.h`에 넣고 Git에는 올리지 않는다. `include/ntrip_secrets.example.h`를 복사해서 사용한다.
 

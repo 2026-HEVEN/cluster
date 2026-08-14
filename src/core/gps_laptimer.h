@@ -14,6 +14,8 @@ uint32_t last_nmea_ms();
 uint32_t last_pps_ms();
 uint32_t pps_count();
 uint8_t fix_quality();
+uint8_t satellites();
+float hdop();
 const char *rtk_status_label();
 }
 

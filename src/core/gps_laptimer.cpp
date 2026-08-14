@@ -35,6 +35,8 @@ int line_len = 0;
 char last_gga[GGA_LINE_MAX];
 uint32_t last_gga_time_ms = 0;
 uint8_t gga_fix_quality = 0;
+uint8_t gga_satellites = 0;
+float gga_hdop = 0.0f;
 uint32_t last_baud_force_ms = 0;
 volatile uint32_t pps_last_ms_isr = 0;
 volatile uint32_t pps_count_isr = 0;
@@ -82,12 +84,11 @@ bool checksum_ok(const char *s) {
     return sum == (uint8_t)((hi << 4) | lo);
 }
 
-void send_ubx_uart2_baud(uint32_t baud, uint8_t layers) {
-    // UBX-CFG-VALSET: CFG-UART2-BAUDRATE (0x40530001).
+void send_ubx_baud(uint8_t port_key_byte, uint32_t baud, uint8_t layers) {
     uint8_t message[] = {
         0xB5, 0x62, 0x06, 0x8A, 0x0C, 0x00,
         0x00, layers, 0x00, 0x00,
-        0x01, 0x00, 0x53, 0x40,
+        0x01, 0x00, port_key_byte, 0x40,
         (uint8_t)(baud & 0xFF),
         (uint8_t)((baud >> 8) & 0xFF),
         (uint8_t)((baud >> 16) & 0xFF),
@@ -108,6 +109,13 @@ void send_ubx_uart2_baud(uint32_t baud, uint8_t layers) {
     gps_serial.flush();
 }
 
+void send_ubx_all_uart_baud(uint32_t baud, uint8_t layers) {
+    // UBX-CFG-VALSET keys: UART1 baud 0x40520001, UART2 baud 0x40530001.
+    send_ubx_baud(0x52, baud, layers);
+    delay(20);
+    send_ubx_baud(0x53, baud, layers);
+}
+
 void force_gps_baud_115200(bool persist, uint32_t startup_wait_ms) {
     const uint8_t layers = persist ? GPS_BAUD_PERSIST_LAYERS : GPS_BAUD_RUNTIME_LAYERS;
 
@@ -118,15 +126,15 @@ void force_gps_baud_115200(bool persist, uint32_t startup_wait_ms) {
     // Try both known rates. If the receiver is already running at 115200 from
     // RAM while BBR/Flash still says 460800, the second write makes that
     // 115200 setting durable before the next power cycle.
-    send_ubx_uart2_baud(GPS_BAUD, layers);
+    send_ubx_all_uart_baud(GPS_BAUD, layers);
     delay(100);
     gps_serial.end();
     line_len = 0;
     gps_serial.begin(GPS_BAUD, SERIAL_8N1, PIN_GPS_RX, PIN_GPS_TX);
-    send_ubx_uart2_baud(GPS_BAUD, layers);
+    send_ubx_all_uart_baud(GPS_BAUD, layers);
     last_baud_force_ms = millis();
 
-    Serial.print("[GPS] UART2 forced to ");
+    Serial.print("[GPS] UART1/UART2 forced to ");
     Serial.print(GPS_BAUD);
     Serial.println(persist ? " baud (RAM/BBR/Flash)" : " baud (RAM)");
 }
@@ -175,6 +183,8 @@ void parse_gga(char *sentence) {
     if (strcmp(fields[0], "GPGGA") != 0 && strcmp(fields[0], "GNGGA") != 0) return;
     copy_gga_sentence(original);
     gga_fix_quality = (uint8_t)atoi(fields[6]);
+    gga_satellites = count > 7 ? (uint8_t)atoi(fields[7]) : 0;
+    gga_hdop = count > 8 ? (float)atof(fields[8]) : 0.0f;
 }
 
 bool vehicle_speed_fresh(uint32_t now) {
@@ -368,7 +378,7 @@ void poll() {
     const bool nmea_missing = state.gps_last_rx_ms == 0 ||
                               now - state.gps_last_rx_ms > GPS_FIX_TIMEOUT_MS;
     if (nmea_missing && now - last_baud_force_ms >= GPS_BAUD_RETRY_MS) {
-        Serial.println("[GPS] NMEA timeout, retrying UART2 at 115200 baud");
+        Serial.println("[GPS] NMEA timeout, retrying UART1/UART2 at 115200 baud");
         force_gps_baud_115200(false, 0);
     }
 
@@ -431,6 +441,14 @@ uint32_t pps_count() {
 
 uint8_t fix_quality() {
     return gga_fix_quality;
+}
+
+uint8_t satellites() {
+    return gga_satellites;
+}
+
+float hdop() {
+    return gga_hdop;
 }
 
 const char *rtk_status_label() {

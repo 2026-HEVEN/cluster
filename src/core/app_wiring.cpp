@@ -282,6 +282,7 @@ namespace {
             std::snprintf(buf, sizeof(buf), "--:--.--");
         }
         status_text(206, 123, buf, 2);
+        status_text(206, 146, gps_laptimer::rtk_status_label(), 1);
 
         y += 3;
         draw_side_status(y, "LEFT", state.motor_temp, state.controller_temp,

@@ -5,13 +5,18 @@
 #include <cstring>
 #include "core/gps_laptimer.h"
 #include "ntrip_config.h"
+#include "state.h"
 
 namespace ntrip {
 namespace {
-constexpr uint32_t WIFI_RETRY_MS = 10000;
+constexpr uint32_t WIFI_RETRY_MS = 5000;
 constexpr uint32_t NTRIP_RECONNECT_MS = 5000;
-constexpr uint32_t GGA_SEND_MS = 5000;
-constexpr uint32_t STATUS_LOG_MS = 1000;
+constexpr uint32_t NTRIP_CONNECT_TIMEOUT_MS = 1000;
+constexpr uint32_t GGA_SEND_MS = 1000;
+constexpr uint32_t GGA_MAX_AGE_MS = 2000;
+constexpr uint32_t GGA_WARN_AGE_MS = 5000;
+constexpr uint32_t RTCM_TIMEOUT_MS = 5000;
+constexpr uint32_t STATUS_LOG_MS = 2000;
 constexpr size_t RTCM_BUFFER_SIZE = 256;
 
 WiFiClient client;
@@ -22,10 +27,14 @@ uint32_t last_wifi_attempt_ms = 0;
 uint32_t last_ntrip_attempt_ms = 0;
 uint32_t last_gga_sent_ms = 0;
 uint32_t last_status_log_ms = 0;
+uint32_t stream_connected_ms = 0;
 uint32_t total_rtcm_bytes = 0;
 uint32_t last_rtcm_time_ms = 0;
 bool wifi_connected_logged = false;
 bool ntrip_connected_logged = false;
+bool wifi_disconnected_logged = false;
+bool gga_stale_logged = false;
+bool rtcm_timeout_logged = false;
 
 bool configured() {
     return ntrip_config::WIFI_SSID[0] != '\0' &&
@@ -61,8 +70,21 @@ void connect_wifi(uint32_t now) {
     last_wifi_attempt_ms = now;
     WiFi.mode(WIFI_STA);
     WiFi.begin(ntrip_config::WIFI_SSID, ntrip_config::WIFI_PASSWORD);
-    Serial.print("[NTRIP] Wi-Fi connecting to ");
+    Serial.print("[WIFI] Connecting to ");
     Serial.println(ntrip_config::WIFI_SSID);
+}
+
+void reset_stream_state() {
+    header_buffer = "";
+    header_complete = false;
+    stream_ok = false;
+    stream_connected_ms = 0;
+    ntrip_connected_logged = false;
+}
+
+void close_stream() {
+    client.stop();
+    reset_stream_state();
 }
 
 void connect_ntrip(uint32_t now) {
@@ -71,19 +93,17 @@ void connect_ntrip(uint32_t now) {
     if (now - last_ntrip_attempt_ms < NTRIP_RECONNECT_MS) return;
 
     last_ntrip_attempt_ms = now;
-    client.stop();
-    header_buffer = "";
-    header_complete = false;
-    stream_ok = false;
-    ntrip_connected_logged = false;
+    close_stream();
 
     Serial.print("[NTRIP] Connecting ");
     Serial.print(ntrip_config::HOST);
     Serial.print(":");
     Serial.println(ntrip_config::PORT);
 
-    if (!client.connect(ntrip_config::HOST, ntrip_config::PORT)) {
-        Serial.println("[NTRIP] Caster connection failed");
+    client.setTimeout(NTRIP_CONNECT_TIMEOUT_MS);
+    if (!client.connect(ntrip_config::HOST, ntrip_config::PORT, NTRIP_CONNECT_TIMEOUT_MS)) {
+        Serial.println("[NTRIP] Connection failed");
+        Serial.println("[NTRIP] Retry in 5 sec");
         return;
     }
 
@@ -115,10 +135,8 @@ bool header_has_success() {
 void close_bad_stream() {
     Serial.print("[NTRIP] Bad caster response: ");
     Serial.println(header_buffer);
-    client.stop();
-    header_complete = false;
-    stream_ok = false;
-    header_buffer = "";
+    Serial.println("[NTRIP] Retry in 5 sec");
+    close_stream();
 }
 
 void process_header() {
@@ -132,8 +150,10 @@ void process_header() {
             header_complete = true;
             stream_ok = header_has_success();
             if (stream_ok) {
+                stream_connected_ms = millis();
+                rtcm_timeout_logged = false;
                 if (!ntrip_connected_logged) {
-                    Serial.println("[NTRIP] NTRIP connected");
+                    Serial.println("[NTRIP] Connected");
                     Serial.print("[NTRIP] Mount point = ");
                     Serial.println(ntrip_config::MOUNTPOINT);
                     ntrip_connected_logged = true;
@@ -161,6 +181,7 @@ void forward_rtcm(uint32_t now) {
         gps_laptimer::write_rtcm(buffer, (size_t)n);
         total_rtcm_bytes += (uint32_t)n;
         last_rtcm_time_ms = now;
+        rtcm_timeout_logged = false;
     }
 }
 
@@ -169,33 +190,72 @@ void send_gga(uint32_t now) {
 
     const char *gga = gps_laptimer::last_gga_sentence();
     if (!gga || gga[0] == '\0') return;
+    const uint32_t gga_ms = gps_laptimer::last_gga_ms();
+    if (gga_ms == 0 || now - gga_ms > GGA_MAX_AGE_MS) return;
 
     client.write((const uint8_t *)gga, std::strlen(gga));
     client.write((const uint8_t *)"\r\n", 2);
     last_gga_sent_ms = now;
+    gga_stale_logged = false;
+    Serial.println("[NTRIP] GGA sent");
+}
+
+void check_timeouts(uint32_t now) {
+    const uint32_t gga_ms = gps_laptimer::last_gga_ms();
+    if (gga_ms != 0 && now - gga_ms > GGA_WARN_AGE_MS) {
+        if (!gga_stale_logged) {
+            Serial.println("[GPS] WARNING: GGA stale");
+            gga_stale_logged = true;
+        }
+    } else {
+        gga_stale_logged = false;
+    }
+
+    if (!stream_ok) return;
+    const bool rtcm_missing = last_rtcm_time_ms == 0
+        ? (stream_connected_ms != 0 && now - stream_connected_ms > RTCM_TIMEOUT_MS)
+        : (now - last_rtcm_time_ms > RTCM_TIMEOUT_MS);
+    if (rtcm_missing) {
+        if (!rtcm_timeout_logged) {
+            Serial.println("[NTRIP] WARNING: RTCM timeout");
+            Serial.println("[NTRIP] Retry in 5 sec");
+            rtcm_timeout_logged = true;
+        }
+        close_stream();
+    }
 }
 
 void log_status(uint32_t now) {
     if (now - last_status_log_ms < STATUS_LOG_MS) return;
     last_status_log_ms = now;
 
-    Serial.print("[NTRIP] WiFi=");
-    Serial.print(WiFi.status() == WL_CONNECTED ? "OK" : "WAIT");
-    Serial.print(" NTRIP=");
-    Serial.print(stream_ok ? "OK" : "WAIT");
-    Serial.print(" RTCM received bytes=");
-    Serial.print(total_rtcm_bytes);
-    Serial.print(" Last RTCM age=");
-    if (last_rtcm_time_ms == 0) Serial.print("---");
-    else Serial.print(now - last_rtcm_time_ms);
-    Serial.print("ms GPS NMEA receiving=");
-    if (gps_laptimer::last_nmea_ms() == 0) Serial.print("WAIT");
-    else Serial.print(now - gps_laptimer::last_nmea_ms());
-    Serial.print("ms PPS=");
-    if (gps_laptimer::last_pps_ms() == 0) Serial.print("WAIT");
-    else Serial.print(now - gps_laptimer::last_pps_ms());
-    Serial.print("ms RTK=");
+    Serial.println("========== RTK STATUS ==========");
+    Serial.print("WiFi       : ");
+    Serial.println(WiFi.status() == WL_CONNECTED ? "CONNECTED" : "DISCONNECTED");
+    Serial.print("NTRIP      : ");
+    Serial.println(stream_ok ? "CONNECTED" : "DISCONNECTED");
+    Serial.print("Mount      : ");
+    Serial.println(ntrip_config::MOUNTPOINT);
+    Serial.println("GPS UART   : 115200");
+    Serial.print("GPS Fix    : ");
+    Serial.println(state.gps_fix_ok ? "3D" : (state.gps_data_ok ? "SEARCH" : "NO FIX"));
+    Serial.print("RTK        : ");
     Serial.println(gps_laptimer::rtk_status_label());
+    Serial.print("Satellites : ");
+    if (gps_laptimer::satellites() == 0) Serial.println("---");
+    else Serial.println(gps_laptimer::satellites());
+    Serial.print("HDOP       : ");
+    if (gps_laptimer::hdop() <= 0.0f) Serial.println("---");
+    else Serial.println(gps_laptimer::hdop(), 1);
+    Serial.print("GGA age    : ");
+    if (gps_laptimer::last_gga_ms() == 0) Serial.println("---");
+    else Serial.println((now - gps_laptimer::last_gga_ms()) / 1000.0f, 1);
+    Serial.print("RTCM bytes : ");
+    Serial.println(total_rtcm_bytes);
+    Serial.print("RTCM age   : ");
+    if (last_rtcm_time_ms == 0) Serial.println("---");
+    else Serial.println((now - last_rtcm_time_ms) / 1000.0f, 1);
+    Serial.println("================================");
 }
 }
 
@@ -209,7 +269,7 @@ void begin() {
     WiFi.mode(WIFI_STA);
     WiFi.begin(ntrip_config::WIFI_SSID, ntrip_config::WIFI_PASSWORD);
     last_wifi_attempt_ms = millis();
-    Serial.print("[NTRIP] Wi-Fi begin ");
+    Serial.print("[WIFI] Connecting to ");
     Serial.println(ntrip_config::WIFI_SSID);
 }
 
@@ -220,25 +280,32 @@ void poll() {
     connect_wifi(now);
     if (WiFi.status() == WL_CONNECTED) {
         if (!wifi_connected_logged) {
-            Serial.println("[NTRIP] Wi-Fi connected");
+            Serial.println("[WIFI] Connected");
+            Serial.print("[WIFI] IP = ");
+            Serial.println(WiFi.localIP());
             wifi_connected_logged = true;
+            wifi_disconnected_logged = false;
         }
     } else {
+        if (wifi_connected_logged || !wifi_disconnected_logged) {
+            Serial.println("[WIFI] Disconnected");
+            Serial.println("[WIFI] Reconnecting...");
+            wifi_disconnected_logged = true;
+        }
+        close_stream();
         wifi_connected_logged = false;
-        ntrip_connected_logged = false;
     }
     connect_ntrip(now);
 
     if (!client.connected()) {
-        stream_ok = false;
-        header_complete = false;
-        ntrip_connected_logged = false;
+        reset_stream_state();
     } else if (!header_complete) {
         process_header();
     }
 
     forward_rtcm(now);
     send_gga(now);
+    check_timeouts(now);
     log_status(now);
 }
 

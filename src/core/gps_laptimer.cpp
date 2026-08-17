@@ -20,7 +20,7 @@ constexpr uint8_t GPS_BAUD_RUNTIME_LAYERS = 0x01; // RAM
 constexpr uint8_t GPS_BAUD_PERSIST_LAYERS = 0x07; // RAM + BBR + Flash
 constexpr int GPS_LINE_MAX = 96;
 constexpr int GGA_LINE_MAX = 96;
-constexpr float LAP_TRIGGER_RADIUS_M = 2.0f;
+constexpr float FINISH_LINE_HALF_WIDTH_M = 5.0f;
 constexpr float START_RADIUS_M = 2.0f;
 constexpr float REARM_RADIUS_M = 20.0f;
 constexpr float DEPART_SPEED_KPH = 0.5f;
@@ -59,6 +59,9 @@ double start_lat = 0.0;
 double start_lon = 0.0;
 double latest_lat = 0.0;
 double latest_lon = 0.0;
+bool finish_line_ready = false;
+float finish_heading_x = 0.0f;
+float finish_heading_y = 0.0f;
 uint32_t last_cross_ms = 0;
 uint32_t last_fix_ms = 0;
 uint32_t departure_speed_since_ms = 0;
@@ -140,6 +143,10 @@ void force_gps_baud_115200(bool persist, uint32_t startup_wait_ms) {
 }
 
 float distance_m(double lat1, double lon1, double lat2, double lon2);
+struct LocalPoint {
+    float x;
+    float y;
+};
 
 double deg_min_to_decimal(const char *value, char hemi) {
     if (!value || !value[0]) return 0.0;
@@ -238,8 +245,83 @@ float distance_m(double lat1, double lon1, double lat2, double lon2) {
     return (float)(sqrt(x * x + dlat * dlat) * R);
 }
 
+LocalPoint to_start_local_m(double lat, double lon) {
+    constexpr double R = 6371000.0;
+    constexpr double DEG2RAD_LOCAL = 0.017453292519943295;
+    const double p_start = start_lat * DEG2RAD_LOCAL;
+    const double p = lat * DEG2RAD_LOCAL;
+    const double dlat = (lat - start_lat) * DEG2RAD_LOCAL;
+    const double dlon = (lon - start_lon) * DEG2RAD_LOCAL;
+    const double x = dlon * cos((p_start + p) * 0.5) * R;
+    const double y = dlat * R;
+    return { (float)x, (float)y };
+}
+
+bool update_finish_line_heading(double lat, double lon) {
+    if (finish_line_ready) return true;
+
+    const LocalPoint p = to_start_local_m(lat, lon);
+    const float d = sqrtf(p.x * p.x + p.y * p.y);
+    if (d < START_RADIUS_M) return false;
+
+    finish_heading_x = p.x / d;
+    finish_heading_y = p.y / d;
+    finish_line_ready = true;
+    return true;
+}
+
+bool finish_line_crossed(double prev_lat, double prev_lon,
+                         double lat, double lon,
+                         uint32_t prev_ms, uint32_t now,
+                         uint32_t &cross_ms) {
+    if (!finish_line_ready || prev_ms == 0) return false;
+
+    const LocalPoint p0 = to_start_local_m(prev_lat, prev_lon);
+    const LocalPoint p1 = to_start_local_m(lat, lon);
+    const float along0 = p0.x * finish_heading_x + p0.y * finish_heading_y;
+    const float along1 = p1.x * finish_heading_x + p1.y * finish_heading_y;
+
+    // Count only the same-direction crossing used when leaving the start line.
+    if (!(along0 < 0.0f && along1 >= 0.0f)) return false;
+
+    const float denom = along1 - along0;
+    if (denom <= 0.0f) return false;
+
+    const float t = -along0 / denom;
+    if (t < 0.0f || t > 1.0f) return false;
+
+    const float line_x = -finish_heading_y;
+    const float line_y = finish_heading_x;
+    const float lateral0 = p0.x * line_x + p0.y * line_y;
+    const float lateral1 = p1.x * line_x + p1.y * line_y;
+    const float lateral = lateral0 + (lateral1 - lateral0) * t;
+    if (fabsf(lateral) > FINISH_LINE_HALF_WIDTH_M) return false;
+
+    cross_ms = prev_ms + (uint32_t)((now - prev_ms) * t + 0.5f);
+    return true;
+}
+
+void record_lap(uint32_t cross_ms) {
+    const uint32_t lap_ms = cross_ms - last_cross_ms;
+    const uint8_t completed_lap = state.lap_count < 99 ? (uint8_t)(state.lap_count + 1) : 99;
+    state.last_lap_ms = lap_ms;
+    if (state.best_lap_ms == 0 || lap_ms < state.best_lap_ms) {
+        state.best_lap_ms = lap_ms;
+        state.best_lap_count = completed_lap;
+    }
+    state.current_lap_ms = 0;
+    last_cross_ms = cross_ms;
+    if (state.lap_count < 99) ++state.lap_count;
+    lap_armed = false;
+}
+
 void update_lap(double lat, double lon) {
     const uint32_t now = millis();
+    const bool had_previous_fix = latest_fix;
+    const double prev_lat = latest_lat;
+    const double prev_lon = latest_lon;
+    const uint32_t prev_fix_ms = last_fix_ms;
+
     state.gps_fix_ok = true;
     state.gps_data_ok = true;
     state.gps_latitude = lat;
@@ -260,22 +342,18 @@ void update_lap(double lat, double lon) {
 
     state.current_lap_ms = now - last_cross_ms;
 
+    update_finish_line_heading(lat, lon);
+
     if (dist >= REARM_RADIUS_M) {
         lap_armed = true;
     }
 
-    if (lap_armed && dist <= LAP_TRIGGER_RADIUS_M && now - last_cross_ms >= MIN_LAP_MS) {
-        const uint32_t lap_ms = now - last_cross_ms;
-        const uint8_t completed_lap = state.lap_count < 99 ? (uint8_t)(state.lap_count + 1) : 99;
-        state.last_lap_ms = lap_ms;
-        if (state.best_lap_ms == 0 || lap_ms < state.best_lap_ms) {
-            state.best_lap_ms = lap_ms;
-            state.best_lap_count = completed_lap;
-        }
-        state.current_lap_ms = 0;
-        last_cross_ms = now;
-        if (state.lap_count < 99) ++state.lap_count;
-        lap_armed = false;
+    uint32_t cross_ms = now;
+    if (lap_armed && had_previous_fix &&
+        finish_line_crossed(prev_lat, prev_lon, lat, lon, prev_fix_ms, now, cross_ms) &&
+        cross_ms >= last_cross_ms &&
+        cross_ms - last_cross_ms >= MIN_LAP_MS) {
+        record_lap(cross_ms);
     }
 }
 
@@ -394,6 +472,9 @@ bool start_at_current_fix() {
     lap_armed = false;
     waiting_departure = true;
     timing_active = false;
+    finish_line_ready = false;
+    finish_heading_x = 0.0f;
+    finish_heading_y = 0.0f;
     last_cross_ms = 0;
     departure_speed_since_ms = 0;
     state.lap_count = 0;
@@ -409,6 +490,9 @@ void stop() {
     lap_armed = false;
     waiting_departure = false;
     timing_active = false;
+    finish_line_ready = false;
+    finish_heading_x = 0.0f;
+    finish_heading_y = 0.0f;
     last_cross_ms = 0;
     departure_speed_since_ms = 0;
     state.current_lap_ms = 0;

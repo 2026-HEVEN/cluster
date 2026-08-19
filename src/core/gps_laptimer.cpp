@@ -22,6 +22,7 @@ constexpr int GPS_LINE_MAX = 96;
 constexpr int GGA_LINE_MAX = 96;
 constexpr float FINISH_LINE_HALF_WIDTH_M = 5.0f;
 constexpr float START_RADIUS_M = 2.0f;
+constexpr float FINISH_HEADING_LOCK_DISTANCE_M = 5.0f;
 constexpr float REARM_RADIUS_M = 20.0f;
 constexpr float DEPART_SPEED_KPH = 0.5f;
 constexpr uint32_t DEPART_CONFIRM_MS = 150;
@@ -262,7 +263,7 @@ bool update_finish_line_heading(double lat, double lon) {
 
     const LocalPoint p = to_start_local_m(lat, lon);
     const float d = sqrtf(p.x * p.x + p.y * p.y);
-    if (d < START_RADIUS_M) return false;
+    if (d < FINISH_HEADING_LOCK_DISTANCE_M) return false;
 
     finish_heading_x = p.x / d;
     finish_heading_y = p.y / d;

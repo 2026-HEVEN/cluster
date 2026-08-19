@@ -23,8 +23,11 @@ constexpr int GGA_LINE_MAX = 96;
 constexpr float FINISH_LINE_HALF_WIDTH_M = 5.0f;
 constexpr float START_RADIUS_M = 2.0f;
 constexpr float FINISH_HEADING_LOCK_DISTANCE_M = 5.0f;
+constexpr float HEADING_SAMPLE_MIN_DISTANCE_M = 0.5f;
+constexpr uint8_t HEADING_SAMPLE_WINDOW = 4;
+constexpr uint8_t HEADING_SAMPLE_MIN_COUNT = 2;
 constexpr float REARM_RADIUS_M = 20.0f;
-constexpr float DEPART_SPEED_KPH = 0.5f;
+constexpr float DEPART_SPEED_KPH = 1.5f;
 constexpr uint32_t DEPART_CONFIRM_MS = 150;
 constexpr uint32_t VEHICLE_SPEED_STALE_MS = 300;
 constexpr uint32_t MIN_LAP_MS = 10000;
@@ -63,6 +66,10 @@ double latest_lon = 0.0;
 bool finish_line_ready = false;
 float finish_heading_x = 0.0f;
 float finish_heading_y = 0.0f;
+float heading_sample_x[HEADING_SAMPLE_WINDOW] = {};
+float heading_sample_y[HEADING_SAMPLE_WINDOW] = {};
+uint8_t heading_sample_count = 0;
+uint8_t heading_sample_next = 0;
 uint32_t last_cross_ms = 0;
 uint32_t last_fix_ms = 0;
 uint32_t departure_speed_since_ms = 0;
@@ -258,15 +265,58 @@ LocalPoint to_start_local_m(double lat, double lon) {
     return { (float)x, (float)y };
 }
 
+void reset_heading_samples() {
+    for (uint8_t i = 0; i < HEADING_SAMPLE_WINDOW; ++i) {
+        heading_sample_x[i] = 0.0f;
+        heading_sample_y[i] = 0.0f;
+    }
+    heading_sample_count = 0;
+    heading_sample_next = 0;
+}
+
+void add_heading_sample(double prev_lat, double prev_lon, double lat, double lon) {
+    if (finish_line_ready) return;
+
+    const LocalPoint p0 = to_start_local_m(prev_lat, prev_lon);
+    const LocalPoint p1 = to_start_local_m(lat, lon);
+    const float dx = p1.x - p0.x;
+    const float dy = p1.y - p0.y;
+    const float len = sqrtf(dx * dx + dy * dy);
+    if (len < HEADING_SAMPLE_MIN_DISTANCE_M) return;
+
+    heading_sample_x[heading_sample_next] = dx / len;
+    heading_sample_y[heading_sample_next] = dy / len;
+    heading_sample_next = (uint8_t)((heading_sample_next + 1) % HEADING_SAMPLE_WINDOW);
+    if (heading_sample_count < HEADING_SAMPLE_WINDOW) ++heading_sample_count;
+}
+
 bool update_finish_line_heading(double lat, double lon) {
     if (finish_line_ready) return true;
 
     const LocalPoint p = to_start_local_m(lat, lon);
     const float d = sqrtf(p.x * p.x + p.y * p.y);
     if (d < FINISH_HEADING_LOCK_DISTANCE_M) return false;
+    if (heading_sample_count < HEADING_SAMPLE_MIN_COUNT) return false;
 
-    finish_heading_x = p.x / d;
-    finish_heading_y = p.y / d;
+    float avg_x = 0.0f;
+    float avg_y = 0.0f;
+    for (uint8_t i = 0; i < heading_sample_count; ++i) {
+        avg_x += heading_sample_x[i];
+        avg_y += heading_sample_y[i];
+    }
+
+    float avg_len = sqrtf(avg_x * avg_x + avg_y * avg_y);
+    if (avg_len < 0.001f) return false;
+    avg_x /= avg_len;
+    avg_y /= avg_len;
+
+    if (avg_x * p.x + avg_y * p.y < 0.0f) {
+        avg_x = -avg_x;
+        avg_y = -avg_y;
+    }
+
+    finish_heading_x = avg_x;
+    finish_heading_y = avg_y;
     finish_line_ready = true;
     return true;
 }
@@ -343,6 +393,9 @@ void update_lap(double lat, double lon) {
 
     state.current_lap_ms = now - last_cross_ms;
 
+    if (had_previous_fix) {
+        add_heading_sample(prev_lat, prev_lon, lat, lon);
+    }
     update_finish_line_heading(lat, lon);
 
     if (dist >= REARM_RADIUS_M) {
@@ -476,6 +529,7 @@ bool start_at_current_fix() {
     finish_line_ready = false;
     finish_heading_x = 0.0f;
     finish_heading_y = 0.0f;
+    reset_heading_samples();
     last_cross_ms = 0;
     departure_speed_since_ms = 0;
     state.lap_count = 0;
@@ -494,6 +548,7 @@ void stop() {
     finish_line_ready = false;
     finish_heading_x = 0.0f;
     finish_heading_y = 0.0f;
+    reset_heading_samples();
     last_cross_ms = 0;
     departure_speed_since_ms = 0;
     state.current_lap_ms = 0;

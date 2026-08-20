@@ -283,6 +283,14 @@ namespace {
         }
         status_text(206, 123, buf, 2);
         status_text(206, 146, gps_laptimer::rtk_status_label(), 1);
+        const char *ntrip_status = !ntrip::wifi_connected() ? "WIFI WAIT" :
+                                   (ntrip::connected() ? "NTRIP OK" : "NTRIP WAIT");
+        status_text(206, 159, ntrip_status, 1);
+
+        const uint32_t rtcm_ms = ntrip::last_rtcm_ms();
+        const char *rtcm_status = rtcm_ms == 0 ? "RTCM WAIT" :
+                                  (now - rtcm_ms <= 5000UL ? "RTCM OK" : "RTCM OLD");
+        status_text(206, 172, rtcm_status, 1);
 
         y += 3;
         draw_side_status(y, "LEFT", state.motor_temp, state.controller_temp,

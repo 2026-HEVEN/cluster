@@ -18,8 +18,9 @@ void test_state_defaults_safe(void) {
     TEST_ASSERT_EQUAL_UINT8(0, s.controller_status_r);
     TEST_ASSERT_FALSE(s.paddock);
     TEST_ASSERT_FALSE(s.tc_enabled);
-    TEST_ASSERT_FALSE(s.regen_auto_enabled);
+    TEST_ASSERT_EQUAL_UINT8(0, s.regen_level);
     TEST_ASSERT_FALSE(s.debug_enabled);
+    TEST_ASSERT_FALSE(s.water_pump_auto_enabled);
     TEST_ASSERT_FALSE(s.gps_fix_ok);
     TEST_ASSERT_EQUAL_UINT32(0, s.gps_last_rx_ms);
     TEST_ASSERT_FALSE(s.bms_ble_connected);

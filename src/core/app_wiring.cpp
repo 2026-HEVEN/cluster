@@ -29,11 +29,12 @@ namespace {
     // reintroduced HERE only, without touching any module).
     constexpr int PIN_PADDOCK = 36; // SVP/GPIO36; external 10k pull-up required on PCB
     constexpr int PIN_TC = 25;
-    constexpr int PIN_REGEN_AUTO = 27; // regen auto toggle; ON=LOW, OFF=request regen disabled
+    constexpr int PIN_REGEN_BIT0 = 27; // regen rotary bit 0; ON=LOW
+    constexpr int PIN_REGEN_BIT1 = 34; // regen rotary bit 1; GPIO34 needs external 10k pull-up
     constexpr int PIN_DEBUG = 26;
     constexpr int PIN_GPS_LAP_START = 32;     // set GPS lap start
     constexpr int PIN_TOUCH_CS = 23;        // XPT2046 touch chip select; touch toggles vehicle status
-    constexpr int PIN_WARNING_DETAIL = 13; // LOW toggles warning detail page
+    constexpr int PIN_WATER_PUMP_AUTO = 13; // water pump auto enable; ON=LOW
     constexpr uint32_t CAN_STARTUP_GRACE_MS = 3000;
     constexpr uint32_t CONTROLLER_FRAME_TIMEOUT_MS = 300;
     constexpr uint32_t VCU_STATUS_TIMEOUT_MS = 300;
@@ -206,9 +207,24 @@ namespace {
         return side_fault(err1, err2, err3) ? "FAULT" : "OK";
     }
 
-    void draw_side_status(int &y, const char *side, int motor_temp, int ctrl_temp,
+    void draw_side_wait(int &y, const char *side, const char *label) {
+        char buf[48];
+
+        std::snprintf(buf, sizeof(buf), "%s %s", side, label);
+        status_line(y, buf, 2);
+        status_line(y, "MTR ---C WAIT", 2);
+        status_line(y, "CTRL ---C WAIT", 2);
+        status_line(y, "VOLT ---.-- WAIT", 2);
+    }
+
+    void draw_side_status(int &y, const char *side, const char *link_label,
+                          int motor_temp, int ctrl_temp,
                           float voltage, uint8_t err1, uint8_t err2, uint8_t err3) {
         char buf[48];
+        if (link_label[0] != 'O' || link_label[1] != 'K' || link_label[2] != '\0') {
+            draw_side_wait(y, side, link_label);
+            return;
+        }
 
         std::snprintf(buf, sizeof(buf), "%s %s", side, fault_label(err1, err2, err3));
         status_line(y, buf, 2);
@@ -227,17 +243,18 @@ namespace {
     void draw_vehicle_status() {
         const uint32_t now = millis();
         char buf[48];
+        const char *left_can_label = dual_fresh_label(state.controller_l_fb1_last_ms,
+                                                      state.controller_l_fb2_last_ms,
+                                                      now, CONTROLLER_FRAME_TIMEOUT_MS);
+        const char *right_can_label = dual_fresh_label(state.controller_r_fb1_last_ms,
+                                                       state.controller_r_fb2_last_ms,
+                                                       now, CONTROLLER_FRAME_TIMEOUT_MS);
 
         fb_text(fb, 8, 4, "CAR CHECK", 3);
 
         int y = 31;
         std::snprintf(buf, sizeof(buf), "CAN L %s R %s",
-                      dual_fresh_label(state.controller_l_fb1_last_ms,
-                                       state.controller_l_fb2_last_ms,
-                                       now, CONTROLLER_FRAME_TIMEOUT_MS),
-                      dual_fresh_label(state.controller_r_fb1_last_ms,
-                                       state.controller_r_fb2_last_ms,
-                                       now, CONTROLLER_FRAME_TIMEOUT_MS));
+                      left_can_label, right_can_label);
         status_line(y, buf, 2);
 
         std::snprintf(buf, sizeof(buf), "VCU %s HV %s",
@@ -268,6 +285,15 @@ namespace {
             status_text(202, 60, "LAT --.-----", 1);
             status_text(202, 73, "LON ---.-----", 1);
         }
+        const float gps_hz = gps_laptimer::rmc_rate_hz() > 0.0f
+            ? gps_laptimer::rmc_rate_hz()
+            : gps_laptimer::gga_rate_hz();
+        if (gps_hz > 0.0f) {
+            std::snprintf(buf, sizeof(buf), "GPS %.1fHZ", gps_hz);
+        } else {
+            std::snprintf(buf, sizeof(buf), "GPS --.-HZ");
+        }
+        status_text(206, 86, buf, 1);
 
         const unsigned lap = state.lap_count > 99 ? 99 : state.lap_count;
         const unsigned minutes = (unsigned)((state.current_lap_ms / 60000UL) % 100UL);
@@ -283,9 +309,7 @@ namespace {
         }
         status_text(206, 123, buf, 2);
         status_text(206, 146, gps_laptimer::rtk_status_label(), 1);
-        const char *ntrip_status = !ntrip::wifi_connected() ? "WIFI WAIT" :
-                                   (ntrip::connected() ? "NTRIP OK" : "NTRIP WAIT");
-        status_text(206, 159, ntrip_status, 1);
+        status_text(206, 159, ntrip::status_label(), 1);
 
         const uint32_t rtcm_ms = ntrip::last_rtcm_ms();
         const char *rtcm_status = rtcm_ms == 0 ? "RTCM WAIT" :
@@ -293,11 +317,13 @@ namespace {
         status_text(206, 172, rtcm_status, 1);
 
         y += 3;
-        draw_side_status(y, "LEFT", state.motor_temp, state.controller_temp,
+        draw_side_status(y, "LEFT", left_can_label,
+                         state.motor_temp, state.controller_temp,
                          state.bus_voltage, state.error1, state.error2, state.error3);
 
         y += 3;
-        draw_side_status(y, "RIGHT", state.motor_temp_r, state.controller_temp_r,
+        draw_side_status(y, "RIGHT", right_can_label,
+                         state.motor_temp_r, state.controller_temp_r,
                          state.bus_voltage_r, state.error1_r, state.error2_r, state.error3_r);
     }
 
@@ -367,8 +393,10 @@ namespace {
         }
     }
 
-    bool read_regen_auto_enabled() {
-        return digitalRead(PIN_REGEN_AUTO) == LOW;
+    uint8_t read_regen_level() {
+        const uint8_t bit0 = digitalRead(PIN_REGEN_BIT0) == LOW ? 1u : 0u;
+        const uint8_t bit1 = digitalRead(PIN_REGEN_BIT1) == LOW ? 2u : 0u;
+        return (uint8_t)(bit0 | bit1);
     }
 
     void status_touch_update() {
@@ -469,16 +497,20 @@ static void hmi_update() {
     HmiSwitches sw;
     sw.paddock       = digitalRead(PIN_PADDOCK) == LOW;
     sw.tc_enabled    = digitalRead(PIN_TC) == LOW;
-    sw.regen_auto_enabled = read_regen_auto_enabled();
+    const uint8_t regen_level = read_regen_level();
+    sw.regen_bit0 = (regen_level & 0x01) != 0;
+    sw.regen_bit1 = (regen_level & 0x02) != 0;
     sw.debug_enabled = digitalRead(PIN_DEBUG) == LOW;
+    sw.water_pump_auto_enabled = digitalRead(PIN_WATER_PUMP_AUTO) == LOW;
     ClusterCommand cmd = hmi_compute(sw);
     if (!state.gear_from_can) {
         state.gear = 0;
     }
     state.paddock = cmd.paddock;
     state.tc_enabled = cmd.tc_enabled;
-    state.regen_auto_enabled = cmd.regen_auto_enabled;
+    state.regen_level = cmd.regen_level;
     state.debug_enabled = cmd.debug_enabled;
+    state.water_pump_auto_enabled = cmd.water_pump_auto_enabled;
     state.reset_req  = false;
     can_bus::send_command(cmd);
 }
@@ -506,7 +538,7 @@ static void display_update() {
     } else {
         widget_speed_draw(fb,    10,  18, (int)(state.vehicle_speed_kph + 0.5f));
         widget_warnings_draw(fb, 272,  60, warn, state.hv_active,
-                             state.regen_auto_enabled);
+                             state.regen_level > 0);
         widget_gear_draw(fb,     270,   8, gear_code(state.gear));
         const int soc_pct = state.soc_valid ? (int)(state.soc * 100.0f + 0.5f) : -1;
         widget_battery_draw(fb, 270,  86, soc_pct);
@@ -540,10 +572,11 @@ void modules_init() {
 
     pinMode(PIN_PADDOCK, INPUT); // GPIO36 has no internal pull-up; PCB provides external 10k
     pinMode(PIN_TC, INPUT_PULLUP);
-    pinMode(PIN_REGEN_AUTO, INPUT_PULLUP);
+    pinMode(PIN_REGEN_BIT0, INPUT_PULLUP);
+    pinMode(PIN_REGEN_BIT1, INPUT); // GPIO34 has no internal pull-up; PCB must provide external 10k
     pinMode(PIN_DEBUG, INPUT_PULLUP);
     pinMode(PIN_GPS_LAP_START, INPUT_PULLUP);
-    pinMode(PIN_WARNING_DETAIL, INPUT_PULLUP);
+    pinMode(PIN_WATER_PUMP_AUTO, INPUT_PULLUP);
     can_bus::begin();
     gps_laptimer::begin();
     bms_ble::begin();

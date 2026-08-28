@@ -13,6 +13,8 @@ uint32_t last_gga_ms();
 uint32_t last_nmea_ms();
 uint32_t last_pps_ms();
 uint32_t pps_count();
+float gga_rate_hz();
+float rmc_rate_hz();
 uint8_t fix_quality();
 uint8_t satellites();
 float hdop();

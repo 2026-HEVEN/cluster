@@ -32,6 +32,7 @@ constexpr uint32_t DEPART_CONFIRM_MS = 150;
 constexpr uint32_t VEHICLE_SPEED_STALE_MS = 300;
 constexpr uint32_t MIN_LAP_MS = 10000;
 constexpr uint32_t GPS_FIX_TIMEOUT_MS = 3000;
+constexpr float GPS_RATE_ALPHA = 0.25f;
 
 HardwareSerial gps_serial(2);
 char line[GPS_LINE_MAX];
@@ -73,6 +74,10 @@ uint8_t heading_sample_next = 0;
 uint32_t last_cross_ms = 0;
 uint32_t last_fix_ms = 0;
 uint32_t departure_speed_since_ms = 0;
+uint32_t last_gga_rate_ms = 0;
+uint32_t last_rmc_rate_ms = 0;
+float gga_rate = 0.0f;
+float rmc_rate = 0.0f;
 
 int hex_value(char c) {
     if (c >= '0' && c <= '9') return c - '0';
@@ -172,6 +177,16 @@ void copy_gga_sentence(const char *sentence) {
     last_gga_time_ms = millis();
 }
 
+void record_rate(uint32_t &last_ms, float &rate_hz, uint32_t now) {
+    if (last_ms != 0 && now != last_ms) {
+        const float instant_hz = 1000.0f / (float)(now - last_ms);
+        rate_hz = rate_hz <= 0.0f
+            ? instant_hz
+            : rate_hz + GPS_RATE_ALPHA * (instant_hz - rate_hz);
+    }
+    last_ms = now;
+}
+
 void parse_gga(char *sentence) {
     if (!checksum_ok(sentence)) return;
 
@@ -197,6 +212,7 @@ void parse_gga(char *sentence) {
     if (count < 7) return;
     if (strcmp(fields[0], "GPGGA") != 0 && strcmp(fields[0], "GNGGA") != 0) return;
     copy_gga_sentence(original);
+    record_rate(last_gga_rate_ms, gga_rate, last_gga_time_ms);
     gga_fix_quality = (uint8_t)atoi(fields[6]);
     gga_satellites = count > 7 ? (uint8_t)atoi(fields[7]) : 0;
     gga_hdop = count > 8 ? (float)atof(fields[8]) : 0.0f;
@@ -431,6 +447,7 @@ void parse_rmc(char *sentence) {
 
     if (count < 7) return;
     if (strcmp(fields[0], "GPRMC") != 0 && strcmp(fields[0], "GNRMC") != 0) return;
+    record_rate(last_rmc_rate_ms, rmc_rate, millis());
 
     if (fields[2][0] != 'A') {
         state.gps_fix_ok = false;
@@ -577,6 +594,14 @@ uint32_t last_pps_ms() {
 
 uint32_t pps_count() {
     return state.gps_pps_count;
+}
+
+float gga_rate_hz() {
+    return gga_rate;
+}
+
+float rmc_rate_hz() {
+    return rmc_rate;
 }
 
 uint8_t fix_quality() {

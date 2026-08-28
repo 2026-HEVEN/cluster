@@ -12,12 +12,26 @@ namespace {
 constexpr uint32_t WIFI_RETRY_MS = 5000;
 constexpr uint32_t NTRIP_RECONNECT_MS = 5000;
 constexpr uint32_t NTRIP_CONNECT_TIMEOUT_MS = 1000;
+constexpr uint32_t NTRIP_HEADER_TIMEOUT_MS = 3000;
 constexpr uint32_t GGA_SEND_MS = 1000;
 constexpr uint32_t GGA_MAX_AGE_MS = 2000;
 constexpr uint32_t GGA_WARN_AGE_MS = 5000;
 constexpr uint32_t RTCM_TIMEOUT_MS = 5000;
 constexpr uint32_t STATUS_LOG_MS = 2000;
 constexpr size_t RTCM_BUFFER_SIZE = 256;
+
+enum class NtripStatus : uint8_t {
+    Disabled,
+    WifiWait,
+    TcpWait,
+    TcpFail,
+    HeaderWait,
+    HeaderTimeout,
+    TcpDrop,
+    BadResponse,
+    RtcmTimeout,
+    Connected
+};
 
 WiFiClient client;
 bool header_complete = false;
@@ -27,6 +41,7 @@ uint32_t last_wifi_attempt_ms = 0;
 uint32_t last_ntrip_attempt_ms = 0;
 uint32_t last_gga_sent_ms = 0;
 uint32_t last_status_log_ms = 0;
+uint32_t header_wait_start_ms = 0;
 uint32_t stream_connected_ms = 0;
 uint32_t total_rtcm_bytes = 0;
 uint32_t last_rtcm_time_ms = 0;
@@ -35,6 +50,7 @@ bool ntrip_connected_logged = false;
 bool wifi_disconnected_logged = false;
 bool gga_stale_logged = false;
 bool rtcm_timeout_logged = false;
+NtripStatus status = NtripStatus::WifiWait;
 
 bool configured() {
     return ntrip_config::WIFI_SSID[0] != '\0' &&
@@ -67,6 +83,7 @@ void connect_wifi(uint32_t now) {
     if (WiFi.status() == WL_CONNECTED) return;
     if (now - last_wifi_attempt_ms < WIFI_RETRY_MS) return;
 
+    status = NtripStatus::WifiWait;
     last_wifi_attempt_ms = now;
     WiFi.mode(WIFI_STA);
     WiFi.begin(ntrip_config::WIFI_SSID, ntrip_config::WIFI_PASSWORD);
@@ -78,6 +95,7 @@ void reset_stream_state() {
     header_buffer = "";
     header_complete = false;
     stream_ok = false;
+    header_wait_start_ms = 0;
     stream_connected_ms = 0;
     ntrip_connected_logged = false;
 }
@@ -87,6 +105,24 @@ void close_stream() {
     reset_stream_state();
 }
 
+const char *fresh_gga(uint32_t now) {
+    const char *gga = gps_laptimer::last_gga_sentence();
+    if (!gga || gga[0] == '\0') return nullptr;
+    const uint32_t gga_ms = gps_laptimer::last_gga_ms();
+    if (gga_ms == 0 || now - gga_ms > GGA_MAX_AGE_MS) return nullptr;
+    return gga;
+}
+
+void write_gga_line(const char *gga, uint32_t now, const char *label) {
+    if (!gga || gga[0] == '\0') return;
+    client.write((const uint8_t *)gga, std::strlen(gga));
+    client.write((const uint8_t *)"\r\n", 2);
+    last_gga_sent_ms = now;
+    gga_stale_logged = false;
+    Serial.print("[NTRIP] ");
+    Serial.println(label);
+}
+
 void connect_ntrip(uint32_t now) {
     if (WiFi.status() != WL_CONNECTED) return;
     if (client.connected()) return;
@@ -94,6 +130,7 @@ void connect_ntrip(uint32_t now) {
 
     last_ntrip_attempt_ms = now;
     close_stream();
+    status = NtripStatus::TcpWait;
 
     Serial.print("[NTRIP] Connecting ");
     Serial.print(ntrip_config::HOST);
@@ -102,14 +139,25 @@ void connect_ntrip(uint32_t now) {
 
     client.setTimeout(NTRIP_CONNECT_TIMEOUT_MS);
     if (!client.connect(ntrip_config::HOST, ntrip_config::PORT, NTRIP_CONNECT_TIMEOUT_MS)) {
+        status = NtripStatus::TcpFail;
         Serial.println("[NTRIP] Connection failed");
         Serial.println("[NTRIP] Retry in 5 sec");
         return;
     }
+    status = NtripStatus::HeaderWait;
+    header_wait_start_ms = now;
+    Serial.println("[NTRIP] TCP connected, waiting header");
 
+    const char *gga = fresh_gga(now);
     String request = "GET /";
     request += ntrip_config::MOUNTPOINT;
-    request += " HTTP/1.0\r\n";
+    request += " HTTP/1.1\r\n";
+    request += "Host: ";
+    request += ntrip_config::HOST;
+    request += ":";
+    request += ntrip_config::PORT;
+    request += "\r\n";
+    request += "Ntrip-Version: Ntrip/2.0\r\n";
     request += "User-Agent: NTRIP HEVEN-Cluster/1.0\r\n";
     request += "Accept: */*\r\n";
     request += "Connection: keep-alive\r\n";
@@ -122,9 +170,20 @@ void connect_ntrip(uint32_t now) {
         request += base64_encode(credentials.c_str());
         request += "\r\n";
     }
+    if (gga) {
+        request += "Ntrip-GGA: ";
+        request += gga;
+        request += "\r\n";
+    }
 
     request += "\r\n";
     client.print(request);
+    Serial.println("[NTRIP] Request sent");
+    if (gga) {
+        write_gga_line(gga, now, "Initial GGA sent");
+    } else {
+        Serial.println("[NTRIP] No fresh GGA for initial request");
+    }
 }
 
 bool header_has_success() {
@@ -137,6 +196,7 @@ void close_bad_stream() {
     Serial.println(header_buffer);
     Serial.println("[NTRIP] Retry in 5 sec");
     close_stream();
+    status = NtripStatus::BadResponse;
 }
 
 void process_header() {
@@ -150,6 +210,7 @@ void process_header() {
             header_complete = true;
             stream_ok = header_has_success();
             if (stream_ok) {
+                status = NtripStatus::Connected;
                 stream_connected_ms = millis();
                 rtcm_timeout_logged = false;
                 if (!ntrip_connected_logged) {
@@ -188,16 +249,7 @@ void forward_rtcm(uint32_t now) {
 void send_gga(uint32_t now) {
     if (!stream_ok || now - last_gga_sent_ms < GGA_SEND_MS) return;
 
-    const char *gga = gps_laptimer::last_gga_sentence();
-    if (!gga || gga[0] == '\0') return;
-    const uint32_t gga_ms = gps_laptimer::last_gga_ms();
-    if (gga_ms == 0 || now - gga_ms > GGA_MAX_AGE_MS) return;
-
-    client.write((const uint8_t *)gga, std::strlen(gga));
-    client.write((const uint8_t *)"\r\n", 2);
-    last_gga_sent_ms = now;
-    gga_stale_logged = false;
-    Serial.println("[NTRIP] GGA sent");
+    write_gga_line(fresh_gga(now), now, "GGA sent");
 }
 
 void check_timeouts(uint32_t now) {
@@ -211,6 +263,14 @@ void check_timeouts(uint32_t now) {
         gga_stale_logged = false;
     }
 
+    if (status == NtripStatus::HeaderWait && !header_complete && client.connected() &&
+        header_wait_start_ms != 0 && now - header_wait_start_ms > NTRIP_HEADER_TIMEOUT_MS) {
+        Serial.println("[NTRIP] Header timeout");
+        close_stream();
+        status = NtripStatus::HeaderTimeout;
+        return;
+    }
+
     if (!stream_ok) return;
     const bool rtcm_missing = last_rtcm_time_ms == 0
         ? (stream_connected_ms != 0 && now - stream_connected_ms > RTCM_TIMEOUT_MS)
@@ -222,7 +282,28 @@ void check_timeouts(uint32_t now) {
             rtcm_timeout_logged = true;
         }
         close_stream();
+        status = NtripStatus::RtcmTimeout;
     }
+}
+
+const char *status_text() {
+    if (!configured()) return "NTRIP OFF";
+    if (WiFi.status() != WL_CONNECTED) return "WIFI WAIT";
+    if (stream_ok && client.connected()) return "NTRIP OK";
+
+    switch (status) {
+    case NtripStatus::Disabled: return "NTRIP OFF";
+    case NtripStatus::WifiWait: return "WIFI WAIT";
+    case NtripStatus::TcpWait: return "TCP WAIT";
+    case NtripStatus::TcpFail: return "TCP FAIL";
+    case NtripStatus::HeaderWait: return "HDR WAIT";
+    case NtripStatus::HeaderTimeout: return "HDR TIME";
+    case NtripStatus::TcpDrop: return "TCP DROP";
+    case NtripStatus::BadResponse: return "BAD RESP";
+    case NtripStatus::RtcmTimeout: return "RTCM TIME";
+    case NtripStatus::Connected: return "NTRIP OK";
+    }
+    return "NTRIP WAIT";
 }
 
 void log_status(uint32_t now) {
@@ -233,12 +314,17 @@ void log_status(uint32_t now) {
     Serial.print("WiFi       : ");
     Serial.println(WiFi.status() == WL_CONNECTED ? "CONNECTED" : "DISCONNECTED");
     Serial.print("NTRIP      : ");
-    Serial.println(stream_ok ? "CONNECTED" : "DISCONNECTED");
+    Serial.println(stream_ok ? "CONNECTED" : status_text());
     Serial.print("Mount      : ");
     Serial.println(ntrip_config::MOUNTPOINT);
     Serial.println("GPS UART   : 115200");
     Serial.print("GPS Fix    : ");
     Serial.println(state.gps_fix_ok ? "3D" : (state.gps_data_ok ? "SEARCH" : "NO FIX"));
+    Serial.print("GPS Rate   : GGA ");
+    Serial.print(gps_laptimer::gga_rate_hz(), 1);
+    Serial.print(" Hz / RMC ");
+    Serial.print(gps_laptimer::rmc_rate_hz(), 1);
+    Serial.println(" Hz");
     Serial.print("RTK        : ");
     Serial.println(gps_laptimer::rtk_status_label());
     Serial.print("Satellites : ");
@@ -261,6 +347,7 @@ void log_status(uint32_t now) {
 
 void begin() {
     if (!configured()) {
+        status = NtripStatus::Disabled;
         Serial.println("[NTRIP] disabled: create include/ntrip_secrets.h");
         return;
     }
@@ -293,11 +380,16 @@ void poll() {
             wifi_disconnected_logged = true;
         }
         close_stream();
+        status = NtripStatus::WifiWait;
         wifi_connected_logged = false;
     }
     connect_ntrip(now);
 
     if (!client.connected()) {
+        if (status == NtripStatus::HeaderWait) {
+            status = NtripStatus::TcpDrop;
+            Serial.println("[NTRIP] TCP dropped before caster header");
+        }
         reset_stream_state();
     } else if (!header_complete) {
         process_header();
@@ -315,6 +407,10 @@ bool wifi_connected() {
 
 bool connected() {
     return stream_ok && client.connected();
+}
+
+const char *status_label() {
+    return status_text();
 }
 
 uint32_t rtcm_bytes() {

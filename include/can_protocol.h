@@ -34,7 +34,7 @@ constexpr uint32_t CAN_ID_FB1_L = 0x1801D0EF;   // Part I: voltage/current/speed
 constexpr uint32_t CAN_ID_FB2_L = 0x1802D0EF;   // Part II: temps/status/errors (Controller_L)
 constexpr uint32_t CAN_ID_FB1_R = 0x1801D0F0;   // Part I (Controller_R)
 constexpr uint32_t CAN_ID_FB2_R = 0x1802D0F0;   // Part II (Controller_R)
-// Cluster -> VCU command (paddock/TC/regen-auto/debug config). HEVEN-defined.
+// Cluster -> VCU command (paddock/TC/regen level/debug/water pump auto config). HEVEN-defined.
 constexpr uint32_t CAN_ID_CLUSTER_CMD = 0x1801D0C0;
 // VCU -> Cluster display status. HEVEN-defined. Used for VCU-confirmed gear,
 // HV/brake state, and optional SOC when a battery interface is available.
@@ -62,6 +62,7 @@ struct ClusterBmsStatus {
 void encode_cluster_command(const ClusterCommand &cmd, uint8_t out[8]);
 void encode_cluster_bms_status(const ClusterBmsStatus &bms, uint8_t life, uint8_t out[8]);
 void encode_cluster_bms_detail(const ClusterBmsStatus &bms, uint8_t life, uint8_t out[8]);
+void decode_vcu_vehicle_speed(const uint8_t d[8], float &kph, bool &valid);
 
 // Signal decoders (EZkontrol scaling)
 float raw_to_voltage(uint16_t raw);   // 0.1 V/bit, offset 0

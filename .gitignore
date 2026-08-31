@@ -3,6 +3,7 @@
 *.bin
 *.elf
 *.bmp
+include/ntrip_secrets.h
 .DS_Store
 # KiCad local, lock, and backup files
 **/*-backups/

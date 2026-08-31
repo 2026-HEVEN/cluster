@@ -30,26 +30,73 @@ void test_decode_current(void) { TEST_ASSERT_FLOAT_WITHIN(0.01f, 0.0f, raw_to_cu
 void test_decode_temp(void)    { TEST_ASSERT_EQUAL_INT(25, raw_to_temp(65)); }                       // 1C/bit, -40
 void test_decode_speed(void)   { TEST_ASSERT_EQUAL_INT(0, raw_to_speed(32000)); }                    // 1rpm/bit, -32000
 
+
+void test_decode_vcu_vehicle_speed_valid(void) {
+    uint8_t d[8] = {0xE8, 0x03, 1, 0, 0, 0, 0, 0};
+    float kph = -1.0f;
+    bool valid = false;
+    decode_vcu_vehicle_speed(d, kph, valid);
+    TEST_ASSERT_TRUE(valid);
+    TEST_ASSERT_FLOAT_WITHIN(0.01f, 100.0f, kph);
+}
+void test_decode_vcu_vehicle_speed_invalid_clears_value(void) {
+    uint8_t d[8] = {0xE8, 0x03, 0, 0, 0, 0, 0, 0};
+    float kph = -1.0f;
+    bool valid = true;
+    decode_vcu_vehicle_speed(d, kph, valid);
+    TEST_ASSERT_FALSE(valid);
+    TEST_ASSERT_FLOAT_WITHIN(0.01f, 0.0f, kph);
+}
+void test_decode_vcu_vehicle_speed_zero_valid(void) {
+    uint8_t d[8] = {0x00, 0x00, 1, 0, 0, 0, 0, 0};
+    float kph = -1.0f;
+    bool valid = false;
+    decode_vcu_vehicle_speed(d, kph, valid);
+    TEST_ASSERT_TRUE(valid);
+    TEST_ASSERT_FLOAT_WITHIN(0.01f, 0.0f, kph);
+}
+void test_decode_vcu_vehicle_speed_max_value(void) {
+    uint8_t d[8] = {0xFF, 0xFF, 1, 0, 0, 0, 0, 0};
+    float kph = 0.0f;
+    bool valid = false;
+    decode_vcu_vehicle_speed(d, kph, valid);
+    TEST_ASSERT_TRUE(valid);
+    TEST_ASSERT_FLOAT_WITHIN(0.01f, 6553.5f, kph);
+}
+
 void test_encode_config_flags(void) {
     uint8_t out[8];
-    encode_cluster_command({false, true, true, true}, out);
+    encode_cluster_command({false, true, 3, true, true}, out);
     TEST_ASSERT_EQUAL_UINT8(0, out[0]);   // reserved: gear is handled by VCU
-    TEST_ASSERT_EQUAL_UINT8(0x0B, out[1]); // TC + regen auto + debug
+    TEST_ASSERT_EQUAL_UINT8(0x1F, out[1]); // TC + regen level 3 + debug + water pump auto
     TEST_ASSERT_EQUAL_UINT8(0, out[2] & 0x01);   // paddock off
     TEST_ASSERT_EQUAL_UINT8(0, out[2] & 0xFE);    // remaining flags reserved
 }
 
 void test_encode_paddock_bit(void) {
     uint8_t out[8];
-    encode_cluster_command({true, false, false, false}, out);
+    encode_cluster_command({true, false, 0, false, false}, out);
     TEST_ASSERT_EQUAL_UINT8(1, out[2] & 0x01);   // paddock on
 }
-void test_encode_regen_auto_bit(void) {
+void test_encode_regen_level_bits(void) {
     uint8_t out[8];
-    encode_cluster_command({false, false, false, false}, out);
+    encode_cluster_command({false, false, 0, false, false}, out);
     TEST_ASSERT_EQUAL_UINT8(0x00, out[1] & 0x06);
-    encode_cluster_command({false, false, true, false}, out);
+    encode_cluster_command({false, false, 1, false, false}, out);
     TEST_ASSERT_EQUAL_UINT8(0x02, out[1] & 0x06);
+    encode_cluster_command({false, false, 2, false, false}, out);
+    TEST_ASSERT_EQUAL_UINT8(0x04, out[1] & 0x06);
+    encode_cluster_command({false, false, 3, false, false}, out);
+    TEST_ASSERT_EQUAL_UINT8(0x06, out[1] & 0x06);
+    encode_cluster_command({false, false, 9, false, false}, out);
+    TEST_ASSERT_EQUAL_UINT8(0x06, out[1] & 0x06);
+}
+void test_encode_water_pump_auto_bit(void) {
+    uint8_t out[8];
+    encode_cluster_command({false, false, 0, false, false}, out);
+    TEST_ASSERT_EQUAL_UINT8(0x00, out[1] & 0x10);
+    encode_cluster_command({false, false, 0, false, true}, out);
+    TEST_ASSERT_EQUAL_UINT8(0x10, out[1] & 0x10);
 }
 void test_encode_cluster_bms_status(void) {
     uint8_t out[8];
@@ -106,9 +153,14 @@ int main(int, char **) {
     RUN_TEST(test_decode_current);
     RUN_TEST(test_decode_temp);
     RUN_TEST(test_decode_speed);
+    RUN_TEST(test_decode_vcu_vehicle_speed_valid);
+    RUN_TEST(test_decode_vcu_vehicle_speed_invalid_clears_value);
+    RUN_TEST(test_decode_vcu_vehicle_speed_zero_valid);
+    RUN_TEST(test_decode_vcu_vehicle_speed_max_value);
     RUN_TEST(test_encode_config_flags);
     RUN_TEST(test_encode_paddock_bit);
-    RUN_TEST(test_encode_regen_auto_bit);
+    RUN_TEST(test_encode_regen_level_bits);
+    RUN_TEST(test_encode_water_pump_auto_bit);
     RUN_TEST(test_encode_cluster_bms_status);
     RUN_TEST(test_encode_cluster_bms_detail);
     return UNITY_END();

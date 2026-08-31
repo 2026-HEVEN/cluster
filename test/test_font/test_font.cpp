@@ -29,6 +29,11 @@ void test_scale_enlarges(void) {
     TEST_ASSERT_TRUE(fb.get(3, 1));
 }
 
+void test_alphabet_glyphs_exist(void) {
+    for (char c = 'A'; c <= 'Z'; ++c) TEST_ASSERT_NOT_NULL(font_glyph(c));
+    for (char c = 'a'; c <= 'z'; ++c) TEST_ASSERT_NOT_NULL(font_glyph(c));
+}
+
 void setUp(void) {}
 void tearDown(void) {}
 int main(int, char **) {
@@ -37,5 +42,6 @@ int main(int, char **) {
     RUN_TEST(test_unknown_char_skipped);
     RUN_TEST(test_number_renders_digits);
     RUN_TEST(test_scale_enlarges);
+    RUN_TEST(test_alphabet_glyphs_exist);
     return UNITY_END();
 }

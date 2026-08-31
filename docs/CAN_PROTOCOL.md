@@ -157,7 +157,7 @@
 
 ### 5.7 Cluster → VCU : 커맨드  `0x1801D0C0` (신규 할당) · ~20ms
 
-> 계기판 config 입력(패독·TC·회생제동 Auto 토글·디버그)을 VCU에 전달. **EZkontrol 표준이 아닌 HEVEN 자체 정의.**
+> 계기판 config 입력(패독·TC·회생제동 4단 로터리·디버그·워터펌프 Auto)을 VCU에 전달. **EZkontrol 표준이 아닌 HEVEN 자체 정의.**
 > 기어 스위치는 Cluster ESP32에 직접 연결하지 않고 VCU 쪽 ADC/pass-through 회로에서 읽는다.
 > PF=0x01, PS=0xD0(VCU), SA=0xC0(Cluster). MCU→VCU(0x1801D0EF)와 SA로 구분되어 충돌 없음.
 > 인코딩 구현: Cluster 펌웨어 `encode_cluster_command()`. 아래 레이아웃과 일치.
@@ -165,7 +165,7 @@
 | 바이트 | 항목 | 의미 |
 |--------|------|------|
 | 0 | Reserved | 0 |
-| 1 | Config flags | bit0: TC enabled, bit1: Regen auto enabled, bit2: reserved(0), bit3: Debug enabled, bit7-4: reserved(0) |
+| 1 | Config flags | bit0: TC enabled, bit1-2: Regen level `0..3`, bit3: Debug enabled, bit4: Water pump auto enabled, bit7-5: reserved(0) |
 | 2 | Flags | bit0: Paddock request, bit7-1: reserved(0) |
 | 3~7 | 예약 | 0 |
 

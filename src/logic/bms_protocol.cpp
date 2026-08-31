@@ -4,6 +4,13 @@ namespace {
 uint16_t u16le(const uint8_t *d) {
     return (uint16_t)(d[0] | ((uint16_t)d[1] << 8));
 }
+
+uint32_t u32le(const uint8_t *d) {
+    return (uint32_t)d[0] |
+           ((uint32_t)d[1] << 8) |
+           ((uint32_t)d[2] << 16) |
+           ((uint32_t)d[3] << 24);
+}
 }
 
 int bms_expected_frame_len(uint8_t id) {
@@ -25,10 +32,10 @@ bool bms_decode_summary_frame(const uint8_t *frame, int len, BmsSummary &out) {
     uint8_t soc_pct = frame[24];
     if (soc_pct > 100) soc_pct = 100;
 
-    out.pack_voltage_v = (float)u16le(frame + 8) * 0.001f;
-    out.current_a = (float)(int16_t)u16le(frame + 10) * 0.001f;
+    out.current_a = (float)(int32_t)u32le(frame + 4) * 0.001f;
+    out.pack_voltage_v = (float)u32le(frame + 8) * 0.001f;
     out.temp_c = frame[12];
-    out.remaining_mah = u16le(frame + 16);
+    out.remaining_mah = u32le(frame + 16);
     out.soc_pct = soc_pct;
     out.soh_pct = frame[25];
     out.cycles = u16le(frame + 26);

@@ -17,6 +17,7 @@ constexpr int PIN_TFT_SCLK = 21;
 constexpr int PIN_TFT_MOSI = 19;
 constexpr int PIN_TFT_MISO = 22;   // Shared SPI MISO for touch controller readback.
 
+constexpr bool PANEL_INVERTED = true; // Devicemart 3.2-inch THL/CD01 ILI9341 panel colors.
 Adafruit_ILI9341 tft(PIN_TFT_CS, PIN_TFT_DC, PIN_TFT_RST);
 }
 
@@ -26,7 +27,7 @@ void begin() {
     SPI.begin(PIN_TFT_SCLK, PIN_TFT_MISO, PIN_TFT_MOSI, PIN_TFT_CS);
     tft.begin();
     tft.setRotation(1);       // landscape: 320x240
-    tft.invertDisplay(true); // Match LCD modules that use inverted panel colors.
+    tft.invertDisplay(PANEL_INVERTED);
     tft.fillScreen(ILI9341_BLACK);
 }
 

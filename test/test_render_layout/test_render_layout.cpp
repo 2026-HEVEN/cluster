@@ -69,12 +69,12 @@ void render_framebuffer(std::vector<uint8_t> &rgb, const FrameBuffer &fb,
 
 void draw_normal_layout(FrameBuffer &fb, bool warning) {
     fb.clear();
-    widget_speed_draw(fb,    10,  10, 160);
-    widget_warnings_draw(fb, 248,  22, warning, true);
-    widget_gear_draw(fb,     289,  16, 2 /* D */);
-    widget_battery_draw(fb, 285,  48, -1);
-    widget_laptime_draw(fb,  10, 136, 3, 85670, true);
-    widget_best_lap_draw(fb, 205, 207, 1, 80770);
+    widget_speed_draw(fb,    10,  18, 160);
+    widget_warnings_draw(fb, 272,  60, warning, true, true);
+    widget_gear_draw(fb,     270,   8, 2 /* D */);
+    widget_battery_draw(fb, 270,  86, -1);
+    widget_laptime_draw(fb,  18, 171, 3, 85670, true);
+    widget_best_lap_draw(fb, 18, 199, 1, 80770);
 }
 
 void draw_warning_detail(FrameBuffer &fb) {
@@ -122,6 +122,11 @@ void draw_status_detail(FrameBuffer &fb) {
     status_line(fb, y, "CAN L OK R OK", 2);
     status_line(fb, y, "VCU OK HV ON", 2);
     status_line(fb, y, "BMS OK 078% 51V", 2);
+    status_text(fb, 210, 39, "GPS OK", 1);
+    status_text(fb, 202, 60, "LAT 37.12345", 1);
+    status_text(fb, 202, 73, "LON 127.12345", 1);
+    status_text(fb, 214, 101, "LAP 03", 2);
+    status_text(fb, 206, 123, "01:25.67", 2);
 
     y += 3;
     status_line(fb, y, "LEFT FAULT", 2);

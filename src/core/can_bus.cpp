@@ -75,12 +75,6 @@ namespace {
         }
     }
 
-    void decode_vcu_vehicle_speed(const uint8_t *d) {
-        const bool valid = d[2] == 1;
-        state.vehicle_speed_valid = valid;
-        state.vehicle_speed_kph = valid ? (float)u16le(d + 0) * 0.1f : 0.0f;
-    }
-
     void transmit_ext(uint32_t id, const uint8_t data[8]) {
         twai_message_t m = {};
         m.identifier = id;
@@ -148,7 +142,7 @@ void poll_rx() {
                 decode_vcu_cluster_status(m.data);
                 break;
             case CAN_ID_VCU_VEHICLE_SPEED:
-                decode_vcu_vehicle_speed(m.data);
+                decode_vcu_vehicle_speed(m.data, state.vehicle_speed_kph, state.vehicle_speed_valid);
                 state.vehicle_speed_last_rx_ms = now;
                 break;
             default:

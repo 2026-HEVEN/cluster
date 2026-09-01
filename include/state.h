@@ -52,7 +52,6 @@ struct ClusterState {
     bool     tc_enabled = false;
     uint8_t  regen_level = 0;
     bool     debug_enabled = false;
-    bool     water_pump_auto_enabled = false;
     bool     reset_req  = false;
 
 

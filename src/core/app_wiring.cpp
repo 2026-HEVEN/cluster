@@ -34,7 +34,6 @@ namespace {
     constexpr int PIN_DEBUG = 26;
     constexpr int PIN_GPS_LAP_START = 32;     // set GPS lap start
     constexpr int PIN_TOUCH_CS = 23;        // XPT2046 touch chip select; touch toggles vehicle status
-    constexpr int PIN_WATER_PUMP_AUTO = 13; // water pump auto enable; ON=LOW
     constexpr uint32_t CAN_STARTUP_GRACE_MS = 3000;
     constexpr uint32_t CONTROLLER_FRAME_TIMEOUT_MS = 300;
     constexpr uint32_t VCU_STATUS_TIMEOUT_MS = 300;
@@ -493,7 +492,6 @@ static void hmi_update() {
     sw.regen_bit0 = (regen_level & 0x01) != 0;
     sw.regen_bit1 = (regen_level & 0x02) != 0;
     sw.debug_enabled = digitalRead(PIN_DEBUG) == LOW;
-    sw.water_pump_auto_enabled = digitalRead(PIN_WATER_PUMP_AUTO) == LOW;
     ClusterCommand cmd = hmi_compute(sw);
     if (!state.gear_from_can) {
         state.gear = 0;
@@ -502,7 +500,6 @@ static void hmi_update() {
     state.tc_enabled = cmd.tc_enabled;
     state.regen_level = cmd.regen_level;
     state.debug_enabled = cmd.debug_enabled;
-    state.water_pump_auto_enabled = cmd.water_pump_auto_enabled;
     state.reset_req  = false;
     can_bus::send_command(cmd);
 }
@@ -586,7 +583,6 @@ void modules_init() {
     pinMode(PIN_REGEN_BIT1, INPUT); // GPIO34 has no internal pull-up; PCB must provide external 10k
     pinMode(PIN_DEBUG, INPUT_PULLUP);
     pinMode(PIN_GPS_LAP_START, INPUT_PULLUP);
-    pinMode(PIN_WATER_PUMP_AUTO, INPUT_PULLUP);
     can_bus::begin();
     gps_laptimer::begin();
     bms_ble::begin();

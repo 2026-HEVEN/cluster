@@ -69,8 +69,7 @@ void encode_cluster_command(const ClusterCommand &cmd, uint8_t out[8]) {
     const uint8_t regen_level = cmd.regen_level > 3 ? 3 : cmd.regen_level;
     out[1] = (cmd.tc_enabled ? 0x01 : 0x00) |
              (uint8_t)(regen_level << 1) |
-             (cmd.debug_enabled ? 0x08 : 0x00) |
-             (cmd.water_pump_auto_enabled ? 0x10 : 0x00);
+             (cmd.debug_enabled ? 0x08 : 0x00);
     out[2] = (cmd.paddock ? 0x01 : 0x00);
 }
 

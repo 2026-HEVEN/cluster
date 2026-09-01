@@ -12,6 +12,12 @@ void test_cluster_bms_ids(void) {
     TEST_ASSERT_EQUAL_HEX32(0x18F3FFC0, CAN_ID_CLUSTER_BMS_STATUS);
     TEST_ASSERT_EQUAL_HEX32(0x18F4FFC0, CAN_ID_CLUSTER_BMS_DETAIL);
 }
+void test_cluster_gnss_lap_ids(void) {
+    TEST_ASSERT_EQUAL_HEX32(0x18F5FFC0, CAN_ID_CLUSTER_GNSS_POSITION);
+    TEST_ASSERT_EQUAL_HEX32(0x18F6FFC0, CAN_ID_CLUSTER_GNSS_RTK_STATUS);
+    TEST_ASSERT_EQUAL_HEX32(0x18F7FFC0, CAN_ID_CLUSTER_LAP_TIME);
+    TEST_ASSERT_EQUAL_HEX32(0x18F8FFC0, CAN_ID_CLUSTER_LAP_STATUS);
+}
 void test_feedback_ids(void) {
     TEST_ASSERT_EQUAL_HEX32(0x1801D0EF, CAN_ID_FB1_L);
     TEST_ASSERT_EQUAL_HEX32(0x1802D0EF, CAN_ID_FB2_L);
@@ -30,26 +36,73 @@ void test_decode_current(void) { TEST_ASSERT_FLOAT_WITHIN(0.01f, 0.0f, raw_to_cu
 void test_decode_temp(void)    { TEST_ASSERT_EQUAL_INT(25, raw_to_temp(65)); }                       // 1C/bit, -40
 void test_decode_speed(void)   { TEST_ASSERT_EQUAL_INT(0, raw_to_speed(32000)); }                    // 1rpm/bit, -32000
 
+
+void test_decode_vcu_vehicle_speed_valid(void) {
+    uint8_t d[8] = {0xE8, 0x03, 1, 0, 0, 0, 0, 0};
+    float kph = -1.0f;
+    bool valid = false;
+    decode_vcu_vehicle_speed(d, kph, valid);
+    TEST_ASSERT_TRUE(valid);
+    TEST_ASSERT_FLOAT_WITHIN(0.01f, 100.0f, kph);
+}
+void test_decode_vcu_vehicle_speed_invalid_clears_value(void) {
+    uint8_t d[8] = {0xE8, 0x03, 0, 0, 0, 0, 0, 0};
+    float kph = -1.0f;
+    bool valid = true;
+    decode_vcu_vehicle_speed(d, kph, valid);
+    TEST_ASSERT_FALSE(valid);
+    TEST_ASSERT_FLOAT_WITHIN(0.01f, 0.0f, kph);
+}
+void test_decode_vcu_vehicle_speed_zero_valid(void) {
+    uint8_t d[8] = {0x00, 0x00, 1, 0, 0, 0, 0, 0};
+    float kph = -1.0f;
+    bool valid = false;
+    decode_vcu_vehicle_speed(d, kph, valid);
+    TEST_ASSERT_TRUE(valid);
+    TEST_ASSERT_FLOAT_WITHIN(0.01f, 0.0f, kph);
+}
+void test_decode_vcu_vehicle_speed_max_value(void) {
+    uint8_t d[8] = {0xFF, 0xFF, 1, 0, 0, 0, 0, 0};
+    float kph = 0.0f;
+    bool valid = false;
+    decode_vcu_vehicle_speed(d, kph, valid);
+    TEST_ASSERT_TRUE(valid);
+    TEST_ASSERT_FLOAT_WITHIN(0.01f, 6553.5f, kph);
+}
+
 void test_encode_config_flags(void) {
     uint8_t out[8];
-    encode_cluster_command({false, true, true, true}, out);
+    encode_cluster_command({false, true, 3, true, true}, out);
     TEST_ASSERT_EQUAL_UINT8(0, out[0]);   // reserved: gear is handled by VCU
-    TEST_ASSERT_EQUAL_UINT8(0x0B, out[1]); // TC + regen auto + debug
+    TEST_ASSERT_EQUAL_UINT8(0x1F, out[1]); // TC + regen level 3 + debug + water pump auto
     TEST_ASSERT_EQUAL_UINT8(0, out[2] & 0x01);   // paddock off
     TEST_ASSERT_EQUAL_UINT8(0, out[2] & 0xFE);    // remaining flags reserved
 }
 
 void test_encode_paddock_bit(void) {
     uint8_t out[8];
-    encode_cluster_command({true, false, false, false}, out);
+    encode_cluster_command({true, false, 0, false, false}, out);
     TEST_ASSERT_EQUAL_UINT8(1, out[2] & 0x01);   // paddock on
 }
-void test_encode_regen_auto_bit(void) {
+void test_encode_regen_level_bits(void) {
     uint8_t out[8];
-    encode_cluster_command({false, false, false, false}, out);
+    encode_cluster_command({false, false, 0, false, false}, out);
     TEST_ASSERT_EQUAL_UINT8(0x00, out[1] & 0x06);
-    encode_cluster_command({false, false, true, false}, out);
+    encode_cluster_command({false, false, 1, false, false}, out);
     TEST_ASSERT_EQUAL_UINT8(0x02, out[1] & 0x06);
+    encode_cluster_command({false, false, 2, false, false}, out);
+    TEST_ASSERT_EQUAL_UINT8(0x04, out[1] & 0x06);
+    encode_cluster_command({false, false, 3, false, false}, out);
+    TEST_ASSERT_EQUAL_UINT8(0x06, out[1] & 0x06);
+    encode_cluster_command({false, false, 9, false, false}, out);
+    TEST_ASSERT_EQUAL_UINT8(0x06, out[1] & 0x06);
+}
+void test_encode_water_pump_auto_bit(void) {
+    uint8_t out[8];
+    encode_cluster_command({false, false, 0, false, false}, out);
+    TEST_ASSERT_EQUAL_UINT8(0x00, out[1] & 0x10);
+    encode_cluster_command({false, false, 0, false, true}, out);
+    TEST_ASSERT_EQUAL_UINT8(0x10, out[1] & 0x10);
 }
 void test_encode_cluster_bms_status(void) {
     uint8_t out[8];
@@ -90,6 +143,77 @@ void test_encode_cluster_bms_detail(void) {
     TEST_ASSERT_EQUAL_UINT8(0, out[6]);
     TEST_ASSERT_EQUAL_UINT8(0x43, out[7]);
 }
+void test_encode_cluster_gnss_position(void) {
+    uint8_t out[8];
+    ClusterGnssPosition pos;
+    pos.latitude_deg = 37.1234567;
+    pos.longitude_deg = 127.7654321;
+    encode_cluster_gnss_position(pos, out);
+
+    TEST_ASSERT_EQUAL_UINT8(0x07, out[0]); // 371234567
+    TEST_ASSERT_EQUAL_UINT8(0x97, out[1]);
+    TEST_ASSERT_EQUAL_UINT8(0x20, out[2]);
+    TEST_ASSERT_EQUAL_UINT8(0x16, out[3]);
+    TEST_ASSERT_EQUAL_UINT8(0x31, out[4]); // 1277654321
+    TEST_ASSERT_EQUAL_UINT8(0x75, out[5]);
+    TEST_ASSERT_EQUAL_UINT8(0x27, out[6]);
+    TEST_ASSERT_EQUAL_UINT8(0x4C, out[7]);
+}
+void test_encode_cluster_gnss_rtk_status(void) {
+    uint8_t out[8];
+    ClusterGnssRtkStatus status;
+    status.gps_data_fresh = true;
+    status.gps_fix_valid = true;
+    status.ntrip_connected = true;
+    status.rtcm_fresh = false;
+    status.fix_quality = 5;
+    status.rtk_state = 1;
+    status.satellites = 12;
+    status.hdop = 0.9f;
+    status.rtcm_age_dsec = 37;
+    encode_cluster_gnss_rtk_status(status, out);
+
+    TEST_ASSERT_EQUAL_UINT8(0x07, out[0]);
+    TEST_ASSERT_EQUAL_UINT8(5, out[1]);
+    TEST_ASSERT_EQUAL_UINT8(1, out[2]);
+    TEST_ASSERT_EQUAL_UINT8(12, out[3]);
+    TEST_ASSERT_EQUAL_UINT8(9, out[4]);
+    TEST_ASSERT_EQUAL_UINT8(0, out[5]);
+    TEST_ASSERT_EQUAL_UINT8(37, out[6]);
+    TEST_ASSERT_EQUAL_UINT8(0, out[7]);
+}
+void test_encode_cluster_lap_time(void) {
+    uint8_t out[8];
+    encode_cluster_lap_time(123456, 654321, out);
+
+    TEST_ASSERT_EQUAL_UINT8(0x40, out[0]);
+    TEST_ASSERT_EQUAL_UINT8(0xE2, out[1]);
+    TEST_ASSERT_EQUAL_UINT8(0x01, out[2]);
+    TEST_ASSERT_EQUAL_UINT8(0x00, out[3]);
+    TEST_ASSERT_EQUAL_UINT8(0xF1, out[4]);
+    TEST_ASSERT_EQUAL_UINT8(0xFB, out[5]);
+    TEST_ASSERT_EQUAL_UINT8(0x09, out[6]);
+    TEST_ASSERT_EQUAL_UINT8(0x00, out[7]);
+}
+void test_encode_cluster_lap_status(void) {
+    uint8_t out[8];
+    ClusterLapStatus lap;
+    lap.best_lap_ms = 98765;
+    lap.lap_count = 3;
+    lap.best_lap_count = 2;
+    lap.timer_running = true;
+    lap.life = 0xA5;
+    encode_cluster_lap_status(lap, out);
+
+    TEST_ASSERT_EQUAL_UINT8(0xCD, out[0]);
+    TEST_ASSERT_EQUAL_UINT8(0x81, out[1]);
+    TEST_ASSERT_EQUAL_UINT8(0x01, out[2]);
+    TEST_ASSERT_EQUAL_UINT8(0x00, out[3]);
+    TEST_ASSERT_EQUAL_UINT8(3, out[4]);
+    TEST_ASSERT_EQUAL_UINT8(2, out[5]);
+    TEST_ASSERT_EQUAL_UINT8(0x01, out[6]);
+    TEST_ASSERT_EQUAL_UINT8(0xA5, out[7]);
+}
 
 void setUp(void) {}
 void tearDown(void) {}
@@ -100,16 +224,26 @@ int main(int, char **) {
     RUN_TEST(test_vcu_cluster_status_id);
     RUN_TEST(test_vcu_vehicle_speed_id);
     RUN_TEST(test_cluster_bms_ids);
+    RUN_TEST(test_cluster_gnss_lap_ids);
     RUN_TEST(test_feedback_ids);
     RUN_TEST(test_feedback_ids_lr_distinct);
     RUN_TEST(test_decode_voltage);
     RUN_TEST(test_decode_current);
     RUN_TEST(test_decode_temp);
     RUN_TEST(test_decode_speed);
+    RUN_TEST(test_decode_vcu_vehicle_speed_valid);
+    RUN_TEST(test_decode_vcu_vehicle_speed_invalid_clears_value);
+    RUN_TEST(test_decode_vcu_vehicle_speed_zero_valid);
+    RUN_TEST(test_decode_vcu_vehicle_speed_max_value);
     RUN_TEST(test_encode_config_flags);
     RUN_TEST(test_encode_paddock_bit);
-    RUN_TEST(test_encode_regen_auto_bit);
+    RUN_TEST(test_encode_regen_level_bits);
+    RUN_TEST(test_encode_water_pump_auto_bit);
     RUN_TEST(test_encode_cluster_bms_status);
     RUN_TEST(test_encode_cluster_bms_detail);
+    RUN_TEST(test_encode_cluster_gnss_position);
+    RUN_TEST(test_encode_cluster_gnss_rtk_status);
+    RUN_TEST(test_encode_cluster_lap_time);
+    RUN_TEST(test_encode_cluster_lap_status);
     return UNITY_END();
 }

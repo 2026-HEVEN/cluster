@@ -8,6 +8,8 @@
 #include "driver/twai.h"
 #include "can_protocol.h"
 #include "state.h"
+#include "core/gps_laptimer.h"
+#include "core/ntrip.h"
 
 namespace can_bus {
 
@@ -23,6 +25,8 @@ namespace {
     uint16_t u16le(const uint8_t *d) { return (uint16_t)(d[0] | (d[1] << 8)); }
 
     constexpr uint32_t BMS_CAN_STALE_MS = 5000;
+    constexpr uint32_t GPS_CAN_STALE_MS = 3000;
+    constexpr uint32_t RTCM_CAN_FRESH_MS = 5000;
 
     float absf(float v) { return v < 0.0f ? -v : v; }
 
@@ -75,12 +79,6 @@ namespace {
         }
     }
 
-    void decode_vcu_vehicle_speed(const uint8_t *d) {
-        const bool valid = d[2] == 1;
-        state.vehicle_speed_valid = valid;
-        state.vehicle_speed_kph = valid ? (float)u16le(d + 0) * 0.1f : 0.0f;
-    }
-
     void transmit_ext(uint32_t id, const uint8_t data[8]) {
         twai_message_t m = {};
         m.identifier = id;
@@ -112,6 +110,40 @@ namespace {
         bms.soh_pct = state.bms_soh;
         bms.cycles = state.bms_cycles;
         return bms;
+    }
+
+    uint16_t rtcm_age_dsec(uint32_t now) {
+        const uint32_t last_rtcm = ntrip::last_rtcm_ms();
+        if (last_rtcm == 0) return 0xFFFF;
+        const uint32_t age_ms = now - last_rtcm;
+        const uint32_t dsec = (age_ms + 50UL) / 100UL;
+        return dsec > 0xFFFFUL ? 0xFFFF : (uint16_t)dsec;
+    }
+
+    uint8_t rtk_state_from_fix_quality(uint8_t quality) {
+        if (quality == 4) return 2;
+        if (quality == 5) return 1;
+        return 0;
+    }
+
+    ClusterGnssRtkStatus snapshot_gnss_rtk_status(uint32_t now) {
+        ClusterGnssRtkStatus status;
+        status.gps_data_fresh = state.gps_last_rx_ms != 0 &&
+                                (now - state.gps_last_rx_ms) <= GPS_CAN_STALE_MS;
+        status.gps_fix_valid = status.gps_data_fresh && state.gps_fix_ok;
+        status.ntrip_connected = ntrip::connected();
+
+        const uint32_t last_rtcm = ntrip::last_rtcm_ms();
+        status.rtcm_fresh = last_rtcm != 0 &&
+                            (now - last_rtcm) <= RTCM_CAN_FRESH_MS;
+        status.fix_quality = status.gps_data_fresh ? gps_laptimer::fix_quality() : 0;
+        status.rtk_state = status.gps_data_fresh
+            ? rtk_state_from_fix_quality(status.fix_quality)
+            : 0;
+        status.satellites = status.gps_data_fresh ? gps_laptimer::satellites() : 0;
+        status.hdop = status.gps_data_fresh ? gps_laptimer::hdop() : 0.0f;
+        status.rtcm_age_dsec = rtcm_age_dsec(now);
+        return status;
     }
 }
 
@@ -148,7 +180,7 @@ void poll_rx() {
                 decode_vcu_cluster_status(m.data);
                 break;
             case CAN_ID_VCU_VEHICLE_SPEED:
-                decode_vcu_vehicle_speed(m.data);
+                decode_vcu_vehicle_speed(m.data, state.vehicle_speed_kph, state.vehicle_speed_valid);
                 state.vehicle_speed_last_rx_ms = now;
                 break;
             default:
@@ -175,6 +207,40 @@ void send_bms_status() {
     transmit_ext(CAN_ID_CLUSTER_BMS_DETAIL, data);
 
     ++life;
+}
+
+void send_gnss_position() {
+    uint8_t data[8];
+    ClusterGnssPosition pos;
+    pos.latitude_deg = state.gps_latitude;
+    pos.longitude_deg = state.gps_longitude;
+    encode_cluster_gnss_position(pos, data);
+    transmit_ext(CAN_ID_CLUSTER_GNSS_POSITION, data);
+}
+
+void send_gnss_rtk_status() {
+    uint8_t data[8];
+    encode_cluster_gnss_rtk_status(snapshot_gnss_rtk_status(millis()), data);
+    transmit_ext(CAN_ID_CLUSTER_GNSS_RTK_STATUS, data);
+}
+
+void send_lap_time() {
+    uint8_t data[8];
+    encode_cluster_lap_time(state.current_lap_ms, state.last_lap_ms, data);
+    transmit_ext(CAN_ID_CLUSTER_LAP_TIME, data);
+}
+
+void send_lap_status(bool timer_running) {
+    static uint8_t life = 0;
+    uint8_t data[8];
+    ClusterLapStatus lap;
+    lap.best_lap_ms = state.best_lap_ms;
+    lap.lap_count = state.lap_count;
+    lap.best_lap_count = state.best_lap_count;
+    lap.timer_running = timer_running;
+    lap.life = life++;
+    encode_cluster_lap_status(lap, data);
+    transmit_ext(CAN_ID_CLUSTER_LAP_STATUS, data);
 }
 
 } // namespace can_bus

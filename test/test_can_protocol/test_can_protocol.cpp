@@ -74,7 +74,7 @@ void test_encode_config_flags(void) {
     uint8_t out[8];
     encode_cluster_command({false, true, 3, true}, out);
     TEST_ASSERT_EQUAL_UINT8(0, out[0]);   // reserved: gear is handled by VCU
-    TEST_ASSERT_EQUAL_UINT8(0x0F, out[1]); // TC + regen level 3 + debug
+    TEST_ASSERT_EQUAL_UINT8(0x0B, out[1]); // TC + regen enable + debug
     TEST_ASSERT_EQUAL_UINT8(0, out[2] & 0x01);   // paddock off
     TEST_ASSERT_EQUAL_UINT8(0, out[2] & 0xFE);    // remaining flags reserved
 }
@@ -84,18 +84,24 @@ void test_encode_paddock_bit(void) {
     encode_cluster_command({true, false, 0, false}, out);
     TEST_ASSERT_EQUAL_UINT8(1, out[2] & 0x01);   // paddock on
 }
-void test_encode_regen_level_bits(void) {
+void test_encode_regen_level_as_vcu_boolean(void) {
     uint8_t out[8];
     encode_cluster_command({false, false, 0, false}, out);
     TEST_ASSERT_EQUAL_UINT8(0x00, out[1] & 0x06);
     encode_cluster_command({false, false, 1, false}, out);
     TEST_ASSERT_EQUAL_UINT8(0x02, out[1] & 0x06);
     encode_cluster_command({false, false, 2, false}, out);
-    TEST_ASSERT_EQUAL_UINT8(0x04, out[1] & 0x06);
+    TEST_ASSERT_EQUAL_UINT8(0x02, out[1] & 0x06);
     encode_cluster_command({false, false, 3, false}, out);
-    TEST_ASSERT_EQUAL_UINT8(0x06, out[1] & 0x06);
+    TEST_ASSERT_EQUAL_UINT8(0x02, out[1] & 0x06);
     encode_cluster_command({false, false, 9, false}, out);
-    TEST_ASSERT_EQUAL_UINT8(0x06, out[1] & 0x06);
+    TEST_ASSERT_EQUAL_UINT8(0x02, out[1] & 0x06);
+}
+void test_ezkontrol_handshake_probe_detection(void) {
+    uint8_t probe[8] = {0x55, 0x55, 0x55, 0x55, 0x55, 0x55, 0x55, 0x55};
+    TEST_ASSERT_TRUE(is_ezkontrol_handshake_probe(probe));
+    probe[6] = 0x54;
+    TEST_ASSERT_FALSE(is_ezkontrol_handshake_probe(probe));
 }
 void test_encode_cluster_bms_status(void) {
     uint8_t out[8];
@@ -230,7 +236,8 @@ int main(int, char **) {
     RUN_TEST(test_decode_vcu_vehicle_speed_max_value);
     RUN_TEST(test_encode_config_flags);
     RUN_TEST(test_encode_paddock_bit);
-    RUN_TEST(test_encode_regen_level_bits);
+    RUN_TEST(test_encode_regen_level_as_vcu_boolean);
+    RUN_TEST(test_ezkontrol_handshake_probe_detection);
     RUN_TEST(test_encode_cluster_bms_status);
     RUN_TEST(test_encode_cluster_bms_detail);
     RUN_TEST(test_encode_cluster_gnss_position);

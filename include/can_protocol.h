@@ -34,7 +34,9 @@ constexpr uint32_t CAN_ID_FB1_L = 0x1801D0EF;   // Part I: voltage/current/speed
 constexpr uint32_t CAN_ID_FB2_L = 0x1802D0EF;   // Part II: temps/status/errors (Controller_L)
 constexpr uint32_t CAN_ID_FB1_R = 0x1801D0F0;   // Part I (Controller_R)
 constexpr uint32_t CAN_ID_FB2_R = 0x1802D0F0;   // Part II (Controller_R)
-// Cluster -> VCU command (paddock/TC/regen level/debug config). HEVEN-defined.
+// Cluster -> VCU command (paddock/TC/regen enable/debug config). HEVEN-defined.
+// The Cluster keeps a local regen level (0..3), but current VCU dev accepts
+// only a boolean regen-auto request on the bus.
 constexpr uint32_t CAN_ID_CLUSTER_CMD = 0x1801D0C0;
 // VCU -> Cluster display status. HEVEN-defined. Used for VCU-confirmed gear,
 // HV/brake state, and optional SOC when a battery interface is available.
@@ -97,6 +99,7 @@ void encode_cluster_gnss_rtk_status(const ClusterGnssRtkStatus &status, uint8_t 
 void encode_cluster_lap_time(uint32_t current_lap_ms, uint32_t last_lap_ms, uint8_t out[8]);
 void encode_cluster_lap_status(const ClusterLapStatus &lap, uint8_t out[8]);
 void decode_vcu_vehicle_speed(const uint8_t d[8], float &kph, bool &valid);
+bool is_ezkontrol_handshake_probe(const uint8_t data[8]);
 
 // Signal decoders (EZkontrol scaling)
 float raw_to_voltage(uint16_t raw);   // 0.1 V/bit, offset 0

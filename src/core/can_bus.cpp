@@ -152,6 +152,10 @@ void poll_rx() {
     while (twai_receive(&m, 0) == ESP_OK) {
         if (!m.extd || m.data_length_code < 8) continue;
         const uint32_t now = millis();
+        if ((m.identifier == CAN_ID_FB1_L || m.identifier == CAN_ID_FB1_R) &&
+            is_ezkontrol_handshake_probe(m.data)) {
+            continue;
+        }
         switch (m.identifier) {
             case CAN_ID_FB1_L:
                 decode_fb1(m.data, state.bus_voltage, state.bus_current, state.speed_rpm_l);

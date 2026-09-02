@@ -94,8 +94,8 @@ namespace {
     }
 
     bool vcu_status_stale(uint32_t now) {
-        return state.vcu_cluster_status_last_ms != 0 &&
-               frame_stale(state.vcu_cluster_status_last_ms, now, VCU_STATUS_TIMEOUT_MS);
+        if (now < CAN_STARTUP_GRACE_MS) return false;
+        return frame_stale(state.vcu_cluster_status_last_ms, now, VCU_STATUS_TIMEOUT_MS);
     }
 
     bool can_link_warning_active(uint32_t now) {

@@ -67,8 +67,9 @@ int32_t clamp_i32_from_double(double value) {
 void encode_cluster_command(const ClusterCommand &cmd, uint8_t out[8]) {
     for (int i = 0; i < 8; i++) out[i] = 0;
     const uint8_t regen_level = cmd.regen_level > 3 ? 3 : cmd.regen_level;
+    const bool regen_enable = regen_level > 0;
     out[1] = (cmd.tc_enabled ? 0x01 : 0x00) |
-             (uint8_t)(regen_level << 1) |
+             (regen_enable ? 0x02 : 0x00) |
              (cmd.debug_enabled ? 0x08 : 0x00);
     out[2] = (cmd.paddock ? 0x01 : 0x00);
 }
@@ -131,4 +132,11 @@ void encode_cluster_lap_status(const ClusterLapStatus &lap, uint8_t out[8]) {
 void decode_vcu_vehicle_speed(const uint8_t d[8], float &kph, bool &valid) {
     valid = d[2] == 1;
     kph = valid ? (float)get_u16le(d) * 0.1f : 0.0f;
+}
+
+bool is_ezkontrol_handshake_probe(const uint8_t data[8]) {
+    for (int i = 0; i < 8; ++i) {
+        if (data[i] != 0x55) return false;
+    }
+    return true;
 }

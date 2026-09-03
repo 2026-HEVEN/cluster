@@ -17,6 +17,7 @@
 #include "modules/widgets/widget_warnings.h"
 #include "modules/widgets/widget_gear.h"
 #include "modules/widgets/widget_laptime.h"
+#include "modules/vess.h"
 #include <Arduino.h>
 #include <XPT2046_Touchscreen.h>
 #include <cstdio>
@@ -31,9 +32,12 @@ namespace {
     constexpr int PIN_TC = 25;
     constexpr int PIN_REGEN_BIT0 = 27; // regen rotary bit 0; ON=LOW
     constexpr int PIN_REGEN_BIT1 = 34; // regen rotary bit 1; GPIO34 needs external 10k pull-up
-    constexpr int PIN_DEBUG = 26;
+    constexpr int PIN_VESS_PWM = 26;
     constexpr int PIN_GPS_LAP_START = 32;     // set GPS lap start
     constexpr int PIN_TOUCH_CS = 23;        // XPT2046 touch chip select; touch toggles vehicle status
+    constexpr uint8_t VESS_PWM_CHANNEL = 0;
+    constexpr uint32_t VESS_PWM_FREQUENCY_HZ = 50;
+    constexpr uint8_t VESS_PWM_RESOLUTION_BITS = 16;
     constexpr uint32_t CAN_STARTUP_GRACE_MS = 3000;
     constexpr uint32_t CONTROLLER_FRAME_TIMEOUT_MS = 300;
     constexpr uint32_t VCU_STATUS_TIMEOUT_MS = 300;
@@ -64,6 +68,16 @@ namespace {
     uint32_t last_gnss_position_seq_sent = 0;
 
     int gear_code(uint8_t gear) { return gear <= 3 ? gear : 0; }
+
+    uint32_t vess_pulse_us_to_duty(uint16_t pulse_us) {
+        const uint32_t period_us = 1000000UL / VESS_PWM_FREQUENCY_HZ;
+        const uint32_t max_duty = (1UL << VESS_PWM_RESOLUTION_BITS) - 1UL;
+        return ((uint32_t)pulse_us * max_duty + period_us / 2UL) / period_us;
+    }
+
+    void vess_write_pulse(uint16_t pulse_us) {
+        ledcWrite(VESS_PWM_CHANNEL, vess_pulse_us_to_duty(pulse_us));
+    }
 
     float absf(float v) { return v < 0.0f ? -v : v; }
 
@@ -449,6 +463,8 @@ namespace {
             frame_fresh(state.controller_l_fb1_last_ms, now, CONTROLLER_FRAME_TIMEOUT_MS);
         const bool right_speed_fresh =
             frame_fresh(state.controller_r_fb1_last_ms, now, CONTROLLER_FRAME_TIMEOUT_MS);
+        const bool vcu_speed_fresh =
+            frame_fresh(state.vehicle_speed_last_rx_ms, now, VEHICLE_SPEED_TIMEOUT_MS);
 
         if (left_speed_fresh && right_speed_fresh) {
             state.speed_rpm = (absf(state.speed_rpm_l) + absf(state.speed_rpm_r)) * 0.5f;
@@ -460,13 +476,12 @@ namespace {
             state.speed_rpm = 0.0f;
         }
 
-        if (left_speed_fresh || right_speed_fresh) {
+        if (vcu_speed_fresh) {
+            // VCU WSS frame is the preferred vehicle-speed source.
+        } else if (left_speed_fresh || right_speed_fresh) {
             state.vehicle_speed_kph = motor_rpm_to_kph(state.speed_rpm);
             state.vehicle_speed_valid = true;
-            state.vehicle_speed_last_rx_ms = now;
-        }
-
-        if (frame_stale(state.vehicle_speed_last_rx_ms, now, VEHICLE_SPEED_TIMEOUT_MS)) {
+        } else {
             state.vehicle_speed_kph = 0.0f;
             state.vehicle_speed_valid = false;
         }
@@ -491,7 +506,7 @@ static void hmi_update() {
     const uint8_t regen_level = read_regen_level();
     sw.regen_bit0 = (regen_level & 0x01) != 0;
     sw.regen_bit1 = (regen_level & 0x02) != 0;
-    sw.debug_enabled = digitalRead(PIN_DEBUG) == LOW;
+    sw.debug_enabled = false; // GPIO26 is now the local VESS PWM output.
     ClusterCommand cmd = hmi_compute(sw);
     if (!state.gear_from_can) {
         state.gear = 0;
@@ -502,6 +517,15 @@ static void hmi_update() {
     state.debug_enabled = cmd.debug_enabled;
     state.reset_req  = false;
     can_bus::send_command(cmd);
+}
+
+static void vess_update() {
+    const VessOutput out = vess_compute({
+        state.vehicle_speed_kph,
+        state.vehicle_speed_valid,
+        state.gear,
+    });
+    vess_write_pulse(out.pulse_us);
 }
 
 static void can_rx_update() { can_bus::poll_rx(); }
@@ -565,6 +589,7 @@ Task g_tasks[] = {
     { gnss_status_can_tx_update, 200, 0 },  // 5 Hz GNSS/RTK status telemetry
     { lap_can_tx_update, 200, 0 },          // 5 Hz lap telemetry
     { hmi_update,     20, 0 },   // 50 Hz
+    { vess_update,    20, 0 },   // 50 Hz VESS speed-to-PWM output
     { display_update, 66, 0 },   // ~15 Hz
 };
 const int G_TASK_COUNT = sizeof(g_tasks) / sizeof(g_tasks[0]);
@@ -576,12 +601,14 @@ void modules_init() {
     display_update();
     touch.begin();
     touch.setRotation(1);
+    ledcSetup(VESS_PWM_CHANNEL, VESS_PWM_FREQUENCY_HZ, VESS_PWM_RESOLUTION_BITS);
+    ledcAttachPin(PIN_VESS_PWM, VESS_PWM_CHANNEL);
+    vess_write_pulse(1500);
 
     pinMode(PIN_PADDOCK, INPUT); // GPIO36 has no internal pull-up; PCB provides external 10k
     pinMode(PIN_TC, INPUT_PULLUP);
     pinMode(PIN_REGEN_BIT0, INPUT_PULLUP);
     pinMode(PIN_REGEN_BIT1, INPUT); // GPIO34 has no internal pull-up; PCB must provide external 10k
-    pinMode(PIN_DEBUG, INPUT_PULLUP);
     pinMode(PIN_GPS_LAP_START, INPUT_PULLUP);
     can_bus::begin();
     gps_laptimer::begin();

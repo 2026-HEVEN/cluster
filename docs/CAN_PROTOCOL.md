@@ -157,7 +157,7 @@
 
 ### 5.7 Cluster → VCU : 커맨드  `0x1801D0C0` (신규 할당) · ~20ms
 
-> 계기판 config 입력(패독·TC·회생제동 4단 로터리·디버그·워터펌프 Auto)을 VCU에 전달. **EZkontrol 표준이 아닌 HEVEN 자체 정의.**
+> 계기판 config 입력(패독·TC·회생제동)을 VCU에 전달. **EZkontrol 표준이 아닌 HEVEN 자체 정의.**
 > 기어 스위치는 Cluster ESP32에 직접 연결하지 않고 VCU 쪽 ADC/pass-through 회로에서 읽는다.
 > PF=0x01, PS=0xD0(VCU), SA=0xC0(Cluster). MCU→VCU(0x1801D0EF)와 SA로 구분되어 충돌 없음.
 > 인코딩 구현: Cluster 펌웨어 `encode_cluster_command()`. 아래 레이아웃과 일치.
@@ -165,13 +165,13 @@
 | 바이트 | 항목 | 의미 |
 |--------|------|------|
 | 0 | Reserved | 0 |
-| 1 | Config flags | bit0: TC enabled, bit1-2: Regen level `0..3`, bit3: Debug enabled, bit4: Water pump auto enabled, bit7-5: reserved(0) |
+| 1 | Config flags | bit0: TC-labelled TV enable, bit1: Regen Auto enable(`Cluster RGN 1~3`이면 1), bit2: reserved(0), bit3: Debug legacy request(현재 Cluster GPIO26에서는 사용하지 않아 0), bit7-4: reserved(0) |
 | 2 | Flags | bit0: Paddock request, bit7-1: reserved(0) |
 | 3~7 | 예약 | 0 |
 
 > ⚠️ 패독은 **요청 신호**일 뿐. VCU가 토크/속도를 상한 이하로 클램프하고 CAN 끊김 시 fail-safe(제한 유지)를 결정해야 함.
 > ⚠️ 회생제동 토글도 **요청 신호**다. bit1=1이면 VCU 자동 회생제동 허용, bit1=0이면 회생제동 OFF 요청으로 해석한다. 실제 회생 전류와 차단 여부는 VCU가 배터리 전압/SOC/BMS fault/속도 조건을 기준으로 최종 제한해야 한다.
-> VESS 스위칭은 Cluster GPIO 입력과 이 CAN 커맨드에서 제외한다. VESS 신호 경로/스위칭은 별도 하드웨어 또는 VCU 쪽 계약으로 관리한다.
+> VESS는 CAN 커맨드에 싣지 않는다. Cluster GPIO26이 ESS-DUAL+ RX-TH로 50Hz servo PWM을 직접 출력하며, 현재 구현은 차량속도 기반으로 1500~2000us를 출력한다.
 
 ### 5.8 VCU → Cluster : 표시 상태  `0x1801C0D0` (HEVEN 정의) · 50~100ms 권장
 

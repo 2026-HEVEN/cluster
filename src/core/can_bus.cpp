@@ -68,6 +68,9 @@ namespace {
 
         state.brake = (d[1] & 0x01) != 0;
         state.hv_active = (d[1] & 0x02) != 0;
+        state.throttle_valid = (d[1] & 0x08) != 0;
+        state.throttle_pct = state.throttle_valid
+            ? (float)(d[3] <= 100 ? d[3] : 100) : 0.0f;
 
         if (d[1] & 0x04) {
             uint8_t pct = d[2];

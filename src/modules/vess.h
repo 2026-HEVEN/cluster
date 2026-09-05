@@ -2,8 +2,8 @@
 #include <cstdint>
 
 struct VessInput {
-    float vehicle_speed_kph;
-    bool vehicle_speed_valid;
+    float throttle_pct;
+    bool throttle_valid;
     uint8_t gear; // 0=N, 1=R, 2=D, 3=P
 };
 

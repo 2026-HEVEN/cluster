@@ -171,20 +171,21 @@
 
 > ⚠️ 패독은 **요청 신호**일 뿐. VCU가 토크/속도를 상한 이하로 클램프하고 CAN 끊김 시 fail-safe(제한 유지)를 결정해야 함.
 > ⚠️ 회생제동 토글도 **요청 신호**다. bit1=1이면 VCU 자동 회생제동 허용, bit1=0이면 회생제동 OFF 요청으로 해석한다. 실제 회생 전류와 차단 여부는 VCU가 배터리 전압/SOC/BMS fault/속도 조건을 기준으로 최종 제한해야 한다.
-> VESS는 CAN 커맨드에 싣지 않는다. Cluster GPIO26이 ESS-DUAL+ RX-TH로 50Hz servo PWM을 직접 출력하며, 현재 구현은 차량속도 기반으로 1500~2000us를 출력한다.
+> VESS 명령 자체는 CAN 커맨드에 싣지 않는다. Cluster GPIO26이 ESS-DUAL+ RX-TH로 50Hz servo PWM을 직접 출력한다. VCU 상태 프레임의 보정 스로틀을 사용해 D에서는 1500~2000us, R에서는 1500~1000us를 출력하며, N 또는 CAN/스로틀 무효 시 1500us 중립으로 복귀한다.
 
 ### 5.8 VCU → Cluster : 표시 상태  `0x1801C0D0` (HEVEN 정의) · 50~100ms 권장
 
 > Cluster가 스위치 입력값이 아니라 **VCU가 확정한 차량 상태**를 표시하기 위한 프레임.
-> 현재 Cluster 펌웨어는 이 프레임이 들어오면 기어/HV/브레이크를 갱신한다. SOC는 선택 사항이며, 현재 주 경로는 Cluster의 BLE BMS 직접 수신이다.
+> 현재 Cluster 펌웨어는 이 프레임이 들어오면 기어/HV/브레이크와 VESS용 스로틀을 갱신한다. SOC는 선택 사항이며, 현재 주 경로는 Cluster의 BLE BMS 직접 수신이다.
 > VCU 쪽 구현 전에는 Cluster가 기어를 확정할 수 없으므로 기본 N 표시로 남는다.
 
 | 바이트 | 항목 | 의미 |
 |--------|------|------|
 | 0 | Gear display | 0:N, 1:R, 2:D, 3:P |
-| 1 | Flags | bit0: Brake, bit1: HV active, bit2: SOC valid |
+| 1 | Flags | bit0: Brake, bit1: HV active, bit2: SOC valid, bit3: Throttle valid |
 | 2 | SOC percent | 0~100, bit2(SOC valid)=1일 때만 유효 |
-| 3~6 | 예약 | 0 |
+| 3 | Throttle percent | VCU에서 보정·클램프한 0~100%, bit3(Throttle valid)=1일 때만 유효 |
+| 4~6 | 예약 | 0 |
 | 7 | Life signal | 0~0xFF |
 
 > BMS SOC는 현재 `LWS-1608` BLE BMS를 Cluster ESP32가 직접 polling해서 표시한다.

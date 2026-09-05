@@ -38,8 +38,9 @@ constexpr uint32_t CAN_ID_FB2_R = 0x1802D0F0;   // Part II (Controller_R)
 // The Cluster keeps a local regen level (0..3), but current VCU dev accepts
 // only a boolean regen-auto request on the bus.
 constexpr uint32_t CAN_ID_CLUSTER_CMD = 0x1801D0C0;
-// VCU -> Cluster display status. HEVEN-defined. Used for VCU-confirmed gear,
-// HV/brake state, and optional SOC when a battery interface is available.
+// VCU -> Cluster display status. HEVEN-defined. Carries VCU-confirmed gear,
+// HV/brake state, optional SOC, and calibrated throttle percent for VESS.
+// byte1 bit3=throttle valid, byte3=throttle percent (0..100).
 constexpr uint32_t CAN_ID_VCU_CLUSTER_STATUS = 0x1801C0D0;
 // VCU -> Cluster/TMA-1 single vehicle speed. Bytes 0..1 contain km/h x 10,
 // byte 2 is valid flag (1=valid, 0=invalid), byte 3..7 reserved zero.

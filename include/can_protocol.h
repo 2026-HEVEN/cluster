@@ -40,7 +40,8 @@ constexpr uint32_t CAN_ID_FB2_R = 0x1802D0F0;   // Part II (Controller_R)
 constexpr uint32_t CAN_ID_CLUSTER_CMD = 0x1801D0C0;
 // VCU -> Cluster display status. HEVEN-defined. Carries VCU-confirmed gear,
 // HV/brake state, optional SOC, and calibrated throttle percent for VESS.
-// byte1 bit3=throttle valid, byte3=throttle percent (0..100).
+// byte1 bit3=throttle valid, bit4=Paddock active,
+// byte3=throttle percent (0..100).
 constexpr uint32_t CAN_ID_VCU_CLUSTER_STATUS = 0x1801C0D0;
 // VCU -> Cluster/TMA-1 single vehicle speed. Bytes 0..1 contain km/h x 10,
 // byte 2 is valid flag (1=valid, 0=invalid), byte 3..7 reserved zero.
@@ -91,6 +92,19 @@ struct ClusterLapStatus {
     uint8_t life = 0;
 };
 
+struct VcuClusterStatus {
+    uint8_t gear = 0;
+    bool gear_valid = false;
+    bool brake = false;
+    bool hv_active = false;
+    bool soc_valid = false;
+    uint8_t soc_pct = 0;
+    bool throttle_valid = false;
+    uint8_t throttle_pct = 0;
+    bool paddock_active = false;
+    uint8_t life = 0;
+};
+
 // Cluster -> VCU command frame (0x1801D0C0) encoding. Mirror into VCU repo.
 void encode_cluster_command(const ClusterCommand &cmd, uint8_t out[8]);
 void encode_cluster_bms_status(const ClusterBmsStatus &bms, uint8_t life, uint8_t out[8]);
@@ -99,6 +113,7 @@ void encode_cluster_gnss_position(const ClusterGnssPosition &pos, uint8_t out[8]
 void encode_cluster_gnss_rtk_status(const ClusterGnssRtkStatus &status, uint8_t out[8]);
 void encode_cluster_lap_time(uint32_t current_lap_ms, uint32_t last_lap_ms, uint8_t out[8]);
 void encode_cluster_lap_status(const ClusterLapStatus &lap, uint8_t out[8]);
+VcuClusterStatus decode_vcu_cluster_status(const uint8_t data[8]);
 void decode_vcu_vehicle_speed(const uint8_t d[8], float &kph, bool &valid);
 bool is_ezkontrol_handshake_probe(const uint8_t data[8]);
 

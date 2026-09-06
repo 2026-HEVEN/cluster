@@ -46,6 +46,7 @@ struct ClusterState {
     uint32_t vcu_cluster_status_last_ms = 0;
     bool     brake     = false;
     bool     hv_active = false;
+    bool     paddock_active = false; // VCU-confirmed applied state
     float    throttle_pct = 0.0f;   // VCU-calibrated accelerator position, 0..100
     bool     throttle_valid = false;
     bool     handshaked = false;

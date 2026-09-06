@@ -12,7 +12,6 @@
 #include <cstdio>
 #include <cstdint>
 #include <vector>
-#include <filesystem>
 
 namespace {
 
@@ -127,6 +126,10 @@ void draw_status_detail(FrameBuffer &fb) {
     status_text(fb, 202, 73, "LON 127.12345", 1);
     status_text(fb, 214, 101, "LAP 03", 2);
     status_text(fb, 206, 123, "01:25.67", 2);
+    status_text(fb, 206, 146, "PDK ON", 1);
+    status_text(fb, 206, 159, "RTK FIXED", 1);
+    status_text(fb, 206, 172, "NTRIP OK", 1);
+    status_text(fb, 206, 185, "RTCM OK", 1);
 
     y += 3;
     status_line(fb, y, "LEFT FAULT", 2);
@@ -148,8 +151,7 @@ void write_frame(const char *path, FrameBuffer &fb, int scale, bool warning_scre
     std::FILE *check = std::fopen(path, "rb");
     TEST_ASSERT_NOT_NULL_MESSAGE(check, path);
     if (check) std::fclose(check);
-    auto full_path = std::filesystem::absolute(path);
-    TEST_MESSAGE(full_path.string().c_str());
+    TEST_MESSAGE(path);
 }
 
 }  // namespace

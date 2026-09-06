@@ -182,7 +182,7 @@
 | 바이트 | 항목 | 의미 |
 |--------|------|------|
 | 0 | Gear display | 0:N, 1:R, 2:D, 3:P |
-| 1 | Flags | bit0: Brake, bit1: HV active, bit2: SOC valid, bit3: Throttle valid |
+| 1 | Flags | bit0: Brake, bit1: HV active, bit2: SOC valid, bit3: Throttle valid, bit4: Paddock active, bit7-5: reserved(0) |
 | 2 | SOC percent | 0~100, bit2(SOC valid)=1일 때만 유효 |
 | 3 | Throttle percent | VCU에서 보정·클램프한 0~100%, bit3(Throttle valid)=1일 때만 유효 |
 | 4~6 | 예약 | 0 |
@@ -190,6 +190,7 @@
 
 > BMS SOC는 현재 `LWS-1608` BLE BMS를 Cluster ESP32가 직접 polling해서 표시한다.
 > VCU가 추후 SOC를 확정값으로 보내야 하는 경우에만 이 프레임의 `SOC valid`와 `SOC percent`를 사용한다. VCU 프레임에서 SOC valid가 0이어도 BLE로 받은 SOC는 지우지 않는다.
+> `Paddock active`는 Cluster의 요청 스위치가 아니라 VCU가 실제 패독 제한을 적용 중인지 확인하는 피드백이다. Cluster는 이 값으로 CAR CHECK 화면의 `PDK ON/OFF`를 표시하고, 상태 프레임 timeout 시 OFF로 복귀한다.
 
 ### 5.9 VCU → Cluster/TMA-1 : 단일 차량속도 `0x1803C0D0` (HEVEN 정의) · 50ms
 

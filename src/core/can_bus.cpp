@@ -61,21 +61,20 @@ namespace {
     }
 
     void decode_vcu_cluster_status(const uint8_t *d) {
-        if (d[0] <= 3) {
-            state.gear = d[0];
+        const VcuClusterStatus status = ::decode_vcu_cluster_status(d);
+        if (status.gear_valid) {
+            state.gear = status.gear;
             state.gear_from_can = true;
         }
 
-        state.brake = (d[1] & 0x01) != 0;
-        state.hv_active = (d[1] & 0x02) != 0;
-        state.throttle_valid = (d[1] & 0x08) != 0;
-        state.throttle_pct = state.throttle_valid
-            ? (float)(d[3] <= 100 ? d[3] : 100) : 0.0f;
+        state.brake = status.brake;
+        state.hv_active = status.hv_active;
+        state.paddock_active = status.paddock_active;
+        state.throttle_valid = status.throttle_valid;
+        state.throttle_pct = (float)status.throttle_pct;
 
-        if (d[1] & 0x04) {
-            uint8_t pct = d[2];
-            if (pct > 100) pct = 100;
-            state.soc = (float)pct * 0.01f;
+        if (status.soc_valid) {
+            state.soc = (float)status.soc_pct * 0.01f;
             state.soc_valid = true;
         } else {
             // Do not clear SOC here: a direct BLE BMS reader may be the source.

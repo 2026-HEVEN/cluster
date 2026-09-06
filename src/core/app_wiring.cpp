@@ -313,13 +313,14 @@ namespace {
             std::snprintf(buf, sizeof(buf), "--:--.--");
         }
         status_text(206, 123, buf, 2);
-        status_text(206, 146, gps_laptimer::rtk_status_label(), 1);
-        status_text(206, 159, ntrip::status_label(), 1);
+        status_text(206, 146, state.paddock_active ? "PDK ON" : "PDK OFF", 1);
+        status_text(206, 159, gps_laptimer::rtk_status_label(), 1);
+        status_text(206, 172, ntrip::status_label(), 1);
 
         const uint32_t rtcm_ms = ntrip::last_rtcm_ms();
         const char *rtcm_status = rtcm_ms == 0 ? "RTCM WAIT" :
                                   (now - rtcm_ms <= 5000UL ? "RTCM OK" : "RTCM OLD");
-        status_text(206, 172, rtcm_status, 1);
+        status_text(206, 185, rtcm_status, 1);
 
         y += 3;
         draw_side_status(y, "LEFT", left_can_label,
@@ -490,6 +491,7 @@ namespace {
             state.gear_from_can = false;
             state.brake = false;
             state.hv_active = false;
+            state.paddock_active = false;
         }
     }
 }

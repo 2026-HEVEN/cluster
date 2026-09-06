@@ -70,6 +70,27 @@ void test_decode_vcu_vehicle_speed_max_value(void) {
     TEST_ASSERT_FLOAT_WITHIN(0.01f, 6553.5f, kph);
 }
 
+void test_decode_vcu_cluster_status_paddock_feedback(void) {
+    uint8_t d[8] = {2, 0x1F, 110, 125, 0, 0, 0, 0x5A};
+    VcuClusterStatus status = decode_vcu_cluster_status(d);
+    TEST_ASSERT_TRUE(status.gear_valid);
+    TEST_ASSERT_EQUAL_UINT8(2, status.gear);
+    TEST_ASSERT_TRUE(status.brake);
+    TEST_ASSERT_TRUE(status.hv_active);
+    TEST_ASSERT_TRUE(status.soc_valid);
+    TEST_ASSERT_EQUAL_UINT8(100, status.soc_pct);
+    TEST_ASSERT_TRUE(status.throttle_valid);
+    TEST_ASSERT_EQUAL_UINT8(100, status.throttle_pct);
+    TEST_ASSERT_TRUE(status.paddock_active);
+    TEST_ASSERT_EQUAL_UINT8(0x5A, status.life);
+
+    d[1] = 0;
+    status = decode_vcu_cluster_status(d);
+    TEST_ASSERT_FALSE(status.paddock_active);
+    TEST_ASSERT_FALSE(status.soc_valid);
+    TEST_ASSERT_FALSE(status.throttle_valid);
+}
+
 void test_encode_config_flags(void) {
     uint8_t out[8];
     encode_cluster_command({false, true, 3, true}, out);
@@ -234,6 +255,7 @@ int main(int, char **) {
     RUN_TEST(test_decode_vcu_vehicle_speed_invalid_clears_value);
     RUN_TEST(test_decode_vcu_vehicle_speed_zero_valid);
     RUN_TEST(test_decode_vcu_vehicle_speed_max_value);
+    RUN_TEST(test_decode_vcu_cluster_status_paddock_feedback);
     RUN_TEST(test_encode_config_flags);
     RUN_TEST(test_encode_paddock_bit);
     RUN_TEST(test_encode_regen_level_as_vcu_boolean);

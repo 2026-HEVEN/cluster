@@ -60,19 +60,22 @@ namespace {
         err3 = d[5];
     }
 
-    void decode_vcu_cluster_status(const uint8_t *d) {
-        if (d[0] <= 3) {
-            state.gear = d[0];
+    void decode_vcu_cluster_status(const uint8_t *d, uint32_t now) {
+        const VcuClusterStatus status = ::decode_vcu_cluster_status(d);
+        if (status.gear_valid) {
+            state.gear = status.gear;
             state.gear_from_can = true;
         }
 
-        state.brake = (d[1] & 0x01) != 0;
-        state.hv_active = (d[1] & 0x02) != 0;
+        state.brake = status.brake;
+        state.hv_active = status.hv_active;
+        state.paddock_active = status.paddock_active;
+        state.throttle_valid = status.throttle_valid;
+        state.throttle_pct = status.throttle_valid ? (float)status.throttle_pct : 0.0f;
+        state.throttle_last_rx_ms = state.throttle_valid ? now : 0;
 
-        if (d[1] & 0x04) {
-            uint8_t pct = d[2];
-            if (pct > 100) pct = 100;
-            state.soc = (float)pct * 0.01f;
+        if (status.soc_valid) {
+            state.soc = (float)status.soc_pct * 0.01f;
             state.soc_valid = true;
         } else {
             // Do not clear SOC here: a direct BLE BMS reader may be the source.
@@ -157,6 +160,18 @@ void poll_rx() {
             continue;
         }
         switch (m.identifier) {
+            case CAN_ID_TORQUE_L:
+                if (!is_ezkontrol_handshake_ack(m.data)) {
+                    state.torque_cmd_l_a = decode_motor_target_current_a(m.data);
+                    state.torque_cmd_l_last_ms = now;
+                }
+                break;
+            case CAN_ID_TORQUE_R:
+                if (!is_ezkontrol_handshake_ack(m.data)) {
+                    state.torque_cmd_r_a = decode_motor_target_current_a(m.data);
+                    state.torque_cmd_r_last_ms = now;
+                }
+                break;
             case CAN_ID_FB1_L:
                 decode_fb1(m.data, state.bus_voltage, state.bus_current, state.speed_rpm_l);
                 state.controller_l_seen = true;
@@ -181,7 +196,7 @@ void poll_rx() {
                 break;
             case CAN_ID_VCU_CLUSTER_STATUS:
                 state.vcu_cluster_status_last_ms = now;
-                decode_vcu_cluster_status(m.data);
+                decode_vcu_cluster_status(m.data, now);
                 break;
             case CAN_ID_VCU_VEHICLE_SPEED:
                 decode_vcu_vehicle_speed(m.data, state.vehicle_speed_kph, state.vehicle_speed_valid);

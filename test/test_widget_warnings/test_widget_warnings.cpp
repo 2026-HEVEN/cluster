@@ -20,9 +20,13 @@ void test_hv_fills_hv_box(void) {
     FrameBuffer fb; fb.clear(); widget_warnings_draw(fb, 0, 14, false, true, 0);
     TEST_ASSERT_EQUAL_INT(100, lit_in(fb, 18, 14, 10, 10));
 }
-void test_regen_draws_level_number(void) {
-    FrameBuffer fb; fb.clear(); widget_warnings_draw(fb, 0, 14, false, false, 3);
-    TEST_ASSERT_TRUE(lit_in(fb, 24, 0, 5, 7) > 0);
+void test_regen_off_draws_empty_box(void) {
+    FrameBuffer fb; fb.clear(); widget_warnings_draw(fb, 0, 14, false, false, 1);
+    TEST_ASSERT_TRUE(lit_in(fb, 24, 0, 10, 10) < 100);
+}
+void test_regen_on_fills_box(void) {
+    FrameBuffer fb; fb.clear(); widget_warnings_draw(fb, 0, 14, false, false, 2);
+    TEST_ASSERT_EQUAL_INT(100, lit_in(fb, 24, 0, 10, 10));
 }
 
 void setUp(void) {}
@@ -32,6 +36,7 @@ int main(int, char **) {
     RUN_TEST(test_clear_draws_labels_and_empty_boxes);
     RUN_TEST(test_fault_does_not_draw_warn_box);
     RUN_TEST(test_hv_fills_hv_box);
-    RUN_TEST(test_regen_draws_level_number);
+    RUN_TEST(test_regen_off_draws_empty_box);
+    RUN_TEST(test_regen_on_fills_box);
     return UNITY_END();
 }

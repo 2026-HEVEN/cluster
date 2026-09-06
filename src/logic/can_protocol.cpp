@@ -67,7 +67,7 @@ int32_t clamp_i32_from_double(double value) {
 void encode_cluster_command(const ClusterCommand &cmd, uint8_t out[8]) {
     for (int i = 0; i < 8; i++) out[i] = 0;
     const uint8_t regen_level = cmd.regen_level > 3 ? 3 : cmd.regen_level;
-    const bool regen_enable = regen_level > 0;
+    const bool regen_enable = regen_level >= 2;
     out[1] = (cmd.tc_enabled ? 0x01 : 0x00) |
              (regen_enable ? 0x02 : 0x00) |
              (cmd.debug_enabled ? 0x08 : 0x00);
@@ -129,6 +129,21 @@ void encode_cluster_lap_status(const ClusterLapStatus &lap, uint8_t out[8]) {
     out[7] = lap.life;
 }
 
+VcuClusterStatus decode_vcu_cluster_status(const uint8_t data[8]) {
+    VcuClusterStatus status;
+    status.gear = data[0] <= 3 ? data[0] : 0;
+    status.gear_valid = data[0] <= 3;
+    status.brake = (data[1] & 0x01) != 0;
+    status.hv_active = (data[1] & 0x02) != 0;
+    status.soc_valid = (data[1] & 0x04) != 0;
+    status.soc_pct = data[2] <= 100 ? data[2] : 100;
+    status.throttle_valid = (data[1] & 0x08) != 0;
+    status.throttle_pct = data[3] <= 100 ? data[3] : 100;
+    status.paddock_active = (data[1] & 0x10) != 0;
+    status.life = data[7];
+    return status;
+}
+
 void decode_vcu_vehicle_speed(const uint8_t d[8], float &kph, bool &valid) {
     valid = d[2] == 1;
     kph = valid ? (float)get_u16le(d) * 0.1f : 0.0f;
@@ -139,4 +154,15 @@ bool is_ezkontrol_handshake_probe(const uint8_t data[8]) {
         if (data[i] != 0x55) return false;
     }
     return true;
+}
+
+bool is_ezkontrol_handshake_ack(const uint8_t data[8]) {
+    for (int i = 0; i < 8; ++i) {
+        if (data[i] != 0xAA) return false;
+    }
+    return true;
+}
+
+float decode_motor_target_current_a(const uint8_t data[8]) {
+    return raw_to_torque(get_u16le(data + 0));
 }

@@ -70,6 +70,27 @@ void test_decode_vcu_vehicle_speed_max_value(void) {
     TEST_ASSERT_FLOAT_WITHIN(0.01f, 6553.5f, kph);
 }
 
+void test_decode_vcu_cluster_status_paddock_feedback(void) {
+    uint8_t d[8] = {2, 0x1F, 110, 125, 0, 0, 0, 0x5A};
+    VcuClusterStatus status = decode_vcu_cluster_status(d);
+    TEST_ASSERT_TRUE(status.gear_valid);
+    TEST_ASSERT_EQUAL_UINT8(2, status.gear);
+    TEST_ASSERT_TRUE(status.brake);
+    TEST_ASSERT_TRUE(status.hv_active);
+    TEST_ASSERT_TRUE(status.soc_valid);
+    TEST_ASSERT_EQUAL_UINT8(100, status.soc_pct);
+    TEST_ASSERT_TRUE(status.throttle_valid);
+    TEST_ASSERT_EQUAL_UINT8(100, status.throttle_pct);
+    TEST_ASSERT_TRUE(status.paddock_active);
+    TEST_ASSERT_EQUAL_UINT8(0x5A, status.life);
+
+    d[1] = 0;
+    status = decode_vcu_cluster_status(d);
+    TEST_ASSERT_FALSE(status.paddock_active);
+    TEST_ASSERT_FALSE(status.soc_valid);
+    TEST_ASSERT_FALSE(status.throttle_valid);
+}
+
 void test_encode_config_flags(void) {
     uint8_t out[8];
     encode_cluster_command({false, true, 3, true}, out);
@@ -89,7 +110,7 @@ void test_encode_regen_level_as_vcu_boolean(void) {
     encode_cluster_command({false, false, 0, false}, out);
     TEST_ASSERT_EQUAL_UINT8(0x00, out[1] & 0x06);
     encode_cluster_command({false, false, 1, false}, out);
-    TEST_ASSERT_EQUAL_UINT8(0x02, out[1] & 0x06);
+    TEST_ASSERT_EQUAL_UINT8(0x00, out[1] & 0x06);
     encode_cluster_command({false, false, 2, false}, out);
     TEST_ASSERT_EQUAL_UINT8(0x02, out[1] & 0x06);
     encode_cluster_command({false, false, 3, false}, out);
@@ -102,6 +123,16 @@ void test_ezkontrol_handshake_probe_detection(void) {
     TEST_ASSERT_TRUE(is_ezkontrol_handshake_probe(probe));
     probe[6] = 0x54;
     TEST_ASSERT_FALSE(is_ezkontrol_handshake_probe(probe));
+}
+void test_ezkontrol_handshake_ack_detection(void) {
+    uint8_t ack[8] = {0xAA, 0xAA, 0xAA, 0xAA, 0xAA, 0xAA, 0xAA, 0xAA};
+    TEST_ASSERT_TRUE(is_ezkontrol_handshake_ack(ack));
+    ack[0] = 0x00;
+    TEST_ASSERT_FALSE(is_ezkontrol_handshake_ack(ack));
+}
+void test_decode_motor_target_current(void) {
+    uint8_t data[8] = {0x20, 0x7D, 0, 0, 0, 0, 0, 0}; // 32032 -> 3.2 A
+    TEST_ASSERT_FLOAT_WITHIN(0.01f, 3.2f, decode_motor_target_current_a(data));
 }
 void test_encode_cluster_bms_status(void) {
     uint8_t out[8];
@@ -234,10 +265,13 @@ int main(int, char **) {
     RUN_TEST(test_decode_vcu_vehicle_speed_invalid_clears_value);
     RUN_TEST(test_decode_vcu_vehicle_speed_zero_valid);
     RUN_TEST(test_decode_vcu_vehicle_speed_max_value);
+    RUN_TEST(test_decode_vcu_cluster_status_paddock_feedback);
     RUN_TEST(test_encode_config_flags);
     RUN_TEST(test_encode_paddock_bit);
     RUN_TEST(test_encode_regen_level_as_vcu_boolean);
     RUN_TEST(test_ezkontrol_handshake_probe_detection);
+    RUN_TEST(test_ezkontrol_handshake_ack_detection);
+    RUN_TEST(test_decode_motor_target_current);
     RUN_TEST(test_encode_cluster_bms_status);
     RUN_TEST(test_encode_cluster_bms_detail);
     RUN_TEST(test_encode_cluster_gnss_position);

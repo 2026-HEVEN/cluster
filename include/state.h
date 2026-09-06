@@ -46,7 +46,15 @@ struct ClusterState {
     uint32_t vcu_cluster_status_last_ms = 0;
     bool     brake     = false;
     bool     hv_active = false;
+    bool     paddock_active = false; // VCU-confirmed applied state
     bool     handshaked = false;
+    float    throttle_pct = 0.0f;     // VCU -> Cluster throttle telemetry, 0..100 %
+    bool     throttle_valid = false;
+    uint32_t throttle_last_rx_ms = 0;
+    float    torque_cmd_l_a = 0.0f;   // VCU -> motor controller target current, passively sniffed
+    float    torque_cmd_r_a = 0.0f;
+    uint32_t torque_cmd_l_last_ms = 0;
+    uint32_t torque_cmd_r_last_ms = 0;
     // HMI outputs (sent to VCU)
     bool     paddock = false;
     bool     tc_enabled = false;

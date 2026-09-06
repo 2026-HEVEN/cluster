@@ -8,6 +8,7 @@ void test_state_defaults_safe(void) {
     TEST_ASSERT_FALSE(s.controller_l_seen);
     TEST_ASSERT_FALSE(s.soc_valid);
     TEST_ASSERT_FALSE(s.hv_active);
+    TEST_ASSERT_FALSE(s.paddock_active);
     TEST_ASSERT_FALSE(s.handshaked);
     TEST_ASSERT_EQUAL_UINT8(0, s.error1);
     TEST_ASSERT_EQUAL_UINT8(0, s.controller_status);

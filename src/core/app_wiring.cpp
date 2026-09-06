@@ -660,7 +660,7 @@ Task g_tasks[] = {
     { gnss_status_can_tx_update, 200, 0 },  // 5 Hz GNSS/RTK status telemetry
     { lap_can_tx_update, 200, 0 },          // 5 Hz lap telemetry
     { hmi_update,     20, 0 },   // 50 Hz
-    { vess_update,    20, 0 },   // 50 Hz VESS speed-to-PWM output
+    { vess_update,    20, 0 },   // 50 Hz VESS throttle-to-PWM output
     { display_update, 66, 0 },   // ~15 Hz
 };
 const int G_TASK_COUNT = sizeof(g_tasks) / sizeof(g_tasks[0]);

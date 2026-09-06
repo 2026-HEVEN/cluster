@@ -130,18 +130,19 @@ void encode_cluster_lap_status(const ClusterLapStatus &lap, uint8_t out[8]) {
 }
 
 VcuClusterStatus decode_vcu_cluster_status(const uint8_t data[8]) {
-    VcuClusterStatus status;
-    status.gear = data[0] <= 3 ? data[0] : 0;
-    status.gear_valid = data[0] <= 3;
-    status.brake = (data[1] & 0x01) != 0;
-    status.hv_active = (data[1] & 0x02) != 0;
-    status.soc_valid = (data[1] & 0x04) != 0;
-    status.soc_pct = data[2] <= 100 ? data[2] : 100;
-    status.throttle_valid = (data[1] & 0x08) != 0;
-    status.throttle_pct = data[3] <= 100 ? data[3] : 100;
-    status.paddock_active = (data[1] & 0x10) != 0;
-    status.life = data[7];
-    return status;
+    VcuClusterStatus out;
+    out.gear_valid = data[0] <= 3;
+    out.gear = out.gear_valid ? data[0] : 0;
+    out.brake = (data[1] & 0x01) != 0;
+    out.hv_active = (data[1] & 0x02) != 0;
+    out.soc_valid = (data[1] & 0x04) != 0;
+    out.throttle_valid = (data[1] & 0x08) != 0;
+    out.paddock_active = (data[1] & 0x10) != 0;
+    out.soc_pct = out.soc_valid ? (data[2] <= 100 ? data[2] : 100) : 0;
+    out.throttle_pct = out.throttle_valid
+        ? (data[3] <= 100 ? data[3] : 100) : 0;
+    out.life = data[7];
+    return out;
 }
 
 void decode_vcu_vehicle_speed(const uint8_t d[8], float &kph, bool &valid) {

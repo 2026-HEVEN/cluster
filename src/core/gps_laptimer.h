@@ -7,6 +7,7 @@ void begin();
 void poll();
 bool start_at_current_fix();
 void stop();
+void reset();
 size_t write_rtcm(const uint8_t *data, size_t len);
 const char *last_gga_sentence();
 uint32_t last_gga_ms();

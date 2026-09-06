@@ -560,6 +560,14 @@ bool start_at_current_fix() {
 }
 
 void stop() {
+    lap_armed = false;
+    waiting_departure = false;
+    timing_active = false;
+    departure_speed_since_ms = 0;
+    state.current_lap_ms = 0;
+}
+
+void reset() {
     have_start = false;
     lap_armed = false;
     waiting_departure = false;
@@ -570,7 +578,11 @@ void stop() {
     reset_heading_samples();
     last_cross_ms = 0;
     departure_speed_since_ms = 0;
+    state.lap_count = 0;
     state.current_lap_ms = 0;
+    state.last_lap_ms = 0;
+    state.best_lap_count = 0;
+    state.best_lap_ms = 0;
 }
 
 size_t write_rtcm(const uint8_t *data, size_t len) {

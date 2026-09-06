@@ -116,6 +116,8 @@ void encode_cluster_lap_status(const ClusterLapStatus &lap, uint8_t out[8]);
 VcuClusterStatus decode_vcu_cluster_status(const uint8_t data[8]);
 void decode_vcu_vehicle_speed(const uint8_t d[8], float &kph, bool &valid);
 bool is_ezkontrol_handshake_probe(const uint8_t data[8]);
+bool is_ezkontrol_handshake_ack(const uint8_t data[8]);
+float decode_motor_target_current_a(const uint8_t data[8]);
 
 // Signal decoders (EZkontrol scaling)
 float raw_to_voltage(uint16_t raw);   // 0.1 V/bit, offset 0

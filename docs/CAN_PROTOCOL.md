@@ -165,18 +165,19 @@
 | 바이트 | 항목 | 의미 |
 |--------|------|------|
 | 0 | Reserved | 0 |
-| 1 | Config flags | bit0: TC-labelled TV enable, bit1: Regen Auto enable(`Cluster RGN 1~3`이면 1), bit2: reserved(0), bit3: Debug legacy request(현재 Cluster GPIO26에서는 사용하지 않아 0), bit7-4: reserved(0) |
+| 1 | Config flags | bit0: TC-labelled TV enable, bit1: Regen Auto enable(`Cluster RGN 2~3`이면 1, `RGN 0~1`이면 0), bit2: reserved(0), bit3: Debug legacy request(현재 Cluster GPIO26에서는 사용하지 않아 0), bit7-4: reserved(0) |
 | 2 | Flags | bit0: Paddock request, bit7-1: reserved(0) |
 | 3~7 | 예약 | 0 |
 
 > ⚠️ 패독은 **요청 신호**일 뿐. VCU가 토크/속도를 상한 이하로 클램프하고 CAN 끊김 시 fail-safe(제한 유지)를 결정해야 함.
 > ⚠️ 회생제동 토글도 **요청 신호**다. bit1=1이면 VCU 자동 회생제동 허용, bit1=0이면 회생제동 OFF 요청으로 해석한다. 실제 회생 전류와 차단 여부는 VCU가 배터리 전압/SOC/BMS fault/속도 조건을 기준으로 최종 제한해야 한다.
-> VESS 명령 자체는 CAN 커맨드에 싣지 않는다. Cluster GPIO26이 ESS-DUAL+ RX-TH로 50Hz servo PWM을 직접 출력한다. VCU 상태 프레임의 보정 스로틀을 사용해 D에서는 1500~2000us, R에서는 1500~1000us를 출력하며, N 또는 CAN/스로틀 무효 시 1500us 중립으로 복귀한다.
+> 현재 임시 운용에서는 로터리 스위치 대신 `WARNING_DETAIL` 순간버튼(GPIO13)이 RGN ON/OFF를 토글한다. 부팅 기본값은 ON이며, Cluster 내부에서는 ON=level 2, OFF=level 0으로 처리한다.
+> VESS는 CAN 커맨드에 싣지 않는다. Cluster GPIO26이 ESS-DUAL+ RX-TH로 50Hz servo PWM을 직접 출력한다. 현재 구현은 VCU throttle feedback을 우선 사용하고, 없으면 모터 target current/차량속도 순서로 fallback한다.
 
 ### 5.8 VCU → Cluster : 표시 상태  `0x1801C0D0` (HEVEN 정의) · 50~100ms 권장
 
 > Cluster가 스위치 입력값이 아니라 **VCU가 확정한 차량 상태**를 표시하기 위한 프레임.
-> 현재 Cluster 펌웨어는 이 프레임이 들어오면 기어/HV/브레이크와 VESS용 스로틀을 갱신한다. SOC는 선택 사항이며, 현재 주 경로는 Cluster의 BLE BMS 직접 수신이다.
+> 현재 Cluster 펌웨어는 이 프레임이 들어오면 기어/HV/브레이크/throttle/VCU-confirmed paddock 상태를 갱신한다. SOC는 선택 사항이며, 현재 주 경로는 Cluster의 BLE BMS 직접 수신이다.
 > VCU 쪽 구현 전에는 Cluster가 기어를 확정할 수 없으므로 기본 N 표시로 남는다.
 
 | 바이트 | 항목 | 의미 |

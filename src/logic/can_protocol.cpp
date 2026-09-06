@@ -67,7 +67,7 @@ int32_t clamp_i32_from_double(double value) {
 void encode_cluster_command(const ClusterCommand &cmd, uint8_t out[8]) {
     for (int i = 0; i < 8; i++) out[i] = 0;
     const uint8_t regen_level = cmd.regen_level > 3 ? 3 : cmd.regen_level;
-    const bool regen_enable = regen_level > 0;
+    const bool regen_enable = regen_level >= 2;
     out[1] = (cmd.tc_enabled ? 0x01 : 0x00) |
              (regen_enable ? 0x02 : 0x00) |
              (cmd.debug_enabled ? 0x08 : 0x00);
@@ -155,4 +155,15 @@ bool is_ezkontrol_handshake_probe(const uint8_t data[8]) {
         if (data[i] != 0x55) return false;
     }
     return true;
+}
+
+bool is_ezkontrol_handshake_ack(const uint8_t data[8]) {
+    for (int i = 0; i < 8; ++i) {
+        if (data[i] != 0xAA) return false;
+    }
+    return true;
+}
+
+float decode_motor_target_current_a(const uint8_t data[8]) {
+    return raw_to_torque(get_u16le(data + 0));
 }

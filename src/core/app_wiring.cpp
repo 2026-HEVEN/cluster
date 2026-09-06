@@ -33,6 +33,7 @@ namespace {
     constexpr int PIN_REGEN_BIT0 = 27; // regen rotary bit 0; ON=LOW
     constexpr int PIN_REGEN_BIT1 = 34; // regen rotary bit 1; GPIO34 needs external 10k pull-up
     constexpr int PIN_VESS_PWM = 26;
+    constexpr int PIN_REGEN_TOGGLE = 13; // temporary regen enable push button
     constexpr int PIN_GPS_LAP_START = 32;     // set GPS lap start
     constexpr int PIN_TOUCH_CS = 23;        // XPT2046 touch chip select; touch toggles vehicle status
     constexpr uint8_t VESS_PWM_CHANNEL = 0;
@@ -41,7 +42,10 @@ namespace {
     constexpr uint32_t CAN_STARTUP_GRACE_MS = 3000;
     constexpr uint32_t CONTROLLER_FRAME_TIMEOUT_MS = 300;
     constexpr uint32_t VCU_STATUS_TIMEOUT_MS = 300;
+    constexpr uint32_t CAN_WARNING_HOLD_MS = 1000;
     constexpr uint32_t VEHICLE_SPEED_TIMEOUT_MS = 300;
+    constexpr uint32_t THROTTLE_TIMEOUT_MS = 300;
+    constexpr uint32_t TORQUE_COMMAND_TIMEOUT_MS = 300;
     constexpr uint32_t GPS_SIGNAL_TIMEOUT_MS = 3000;
     constexpr uint32_t GPS_POSITION_CAN_STALE_MS = 3000;
     constexpr uint32_t LAP_NOTICE_MS = 1500;
@@ -58,14 +62,21 @@ namespace {
     bool status_touch_down = false;
     uint32_t status_touch_last_ms = 0;
     constexpr uint32_t STATUS_TOUCH_DEBOUNCE_MS = 120;
+    constexpr uint32_t GPS_LAP_DOUBLE_CLICK_MS = 320;
     XPT2046_Touchscreen touch(PIN_TOUCH_CS);
     bool gps_lap_start_button_down = false;
     uint32_t gps_lap_start_button_last_ms = 0;
+    bool gps_lap_start_single_pending = false;
+    uint32_t gps_lap_start_click_ms = 0;
+    bool regen_toggle_button_down = false;
+    uint32_t regen_toggle_button_last_ms = 0;
+    bool regen_toggle_enabled = true;
     const char *lap_notice_label = nullptr;
     uint32_t lap_notice_until_ms = 0;
     bool gps_fix_was_ok = false;
     bool ntrip_started = false;
     uint32_t last_gnss_position_seq_sent = 0;
+    uint32_t can_warning_since_ms = 0;
 
     int gear_code(uint8_t gear) { return gear <= 3 ? gear : 0; }
 
@@ -118,7 +129,21 @@ namespace {
 
     bool warning_active() {
         const uint32_t now = millis();
-        return controller_fault_active() || can_link_warning_active(now);
+        if (controller_fault_active()) {
+            can_warning_since_ms = 0;
+            return true;
+        }
+
+        if (!can_link_warning_active(now)) {
+            can_warning_since_ms = 0;
+            return false;
+        }
+
+        if (can_warning_since_ms == 0) {
+            can_warning_since_ms = now;
+            return false;
+        }
+        return now - can_warning_since_ms >= CAN_WARNING_HOLD_MS;
     }
 
     void add_warning(const char *labels[], int &count, const char *label) {
@@ -399,10 +424,17 @@ namespace {
         }
     }
 
-    uint8_t read_regen_level() {
-        const uint8_t bit0 = digitalRead(PIN_REGEN_BIT0) == LOW ? 1u : 0u;
-        const uint8_t bit1 = digitalRead(PIN_REGEN_BIT1) == LOW ? 2u : 0u;
-        return (uint8_t)(bit0 | bit1);
+    void regen_toggle_update() {
+        const bool down = digitalRead(PIN_REGEN_TOGGLE) == LOW;
+        const uint32_t now = millis();
+        if (down != regen_toggle_button_down && now - regen_toggle_button_last_ms >= 50) {
+            regen_toggle_button_down = down;
+            regen_toggle_button_last_ms = now;
+            if (down) {
+                regen_toggle_enabled = !regen_toggle_enabled;
+                show_lap_notice(regen_toggle_enabled ? "RGN ON" : "RGN OFF", now);
+            }
+        }
     }
 
     void status_touch_update() {
@@ -426,16 +458,30 @@ namespace {
             gps_lap_start_button_down = down;
             gps_lap_start_button_last_ms = now;
             if (down) {
-                if (warning_active()) {
-                    gps_laptimer::stop();
-                    show_lap_notice("LAP STOPPED", now);
-                } else if (gps_laptimer::start_at_current_fix()) {
-                    show_lap_notice("LAP START SET", now);
-                } else if (!gps_signal_fresh(now)) {
-                    show_lap_notice("NO GPS DATA", now);
+                if (gps_lap_start_single_pending &&
+                    now - gps_lap_start_click_ms <= GPS_LAP_DOUBLE_CLICK_MS) {
+                    gps_lap_start_single_pending = false;
+                    gps_laptimer::reset();
+                    show_lap_notice("GPS LAP RESET", now);
                 } else {
-                    show_lap_notice("NO GPS FIX", now);
+                    gps_lap_start_single_pending = true;
+                    gps_lap_start_click_ms = now;
                 }
+            }
+        }
+
+        if (gps_lap_start_single_pending &&
+            now - gps_lap_start_click_ms > GPS_LAP_DOUBLE_CLICK_MS) {
+            gps_lap_start_single_pending = false;
+            if (warning_active()) {
+                gps_laptimer::stop();
+                show_lap_notice("LAP STOPPED", now);
+            } else if (gps_laptimer::start_at_current_fix()) {
+                show_lap_notice("LAP START SET", now);
+            } else if (!gps_signal_fresh(now)) {
+                show_lap_notice("NO GPS DATA", now);
+            } else {
+                show_lap_notice("NO GPS FIX", now);
             }
         }
     }
@@ -492,6 +538,8 @@ namespace {
             state.brake = false;
             state.hv_active = false;
             state.paddock_active = false;
+            state.throttle_valid = false;
+            state.throttle_last_rx_ms = 0;
         }
     }
 }
@@ -500,12 +548,13 @@ static void hmi_update() {
     refresh_can_timeouts();
     gps_fix_feedback_update();
     gps_lap_start_update();
+    regen_toggle_update();
     status_touch_update();
 
     HmiSwitches sw;
     sw.paddock       = digitalRead(PIN_PADDOCK) == LOW;
     sw.tc_enabled    = digitalRead(PIN_TC) == LOW;
-    const uint8_t regen_level = read_regen_level();
+    const uint8_t regen_level = regen_toggle_enabled ? 2u : 0u;
     sw.regen_bit0 = (regen_level & 0x01) != 0;
     sw.regen_bit1 = (regen_level & 0x02) != 0;
     sw.debug_enabled = false; // GPIO26 is now the local VESS PWM output.
@@ -522,9 +571,29 @@ static void hmi_update() {
 }
 
 static void vess_update() {
+    const uint32_t now = millis();
+    const bool throttle_fresh =
+        frame_fresh(state.throttle_last_rx_ms, now, THROTTLE_TIMEOUT_MS) &&
+        state.throttle_valid;
+    const bool left_torque_fresh =
+        frame_fresh(state.torque_cmd_l_last_ms, now, TORQUE_COMMAND_TIMEOUT_MS);
+    const bool right_torque_fresh =
+        frame_fresh(state.torque_cmd_r_last_ms, now, TORQUE_COMMAND_TIMEOUT_MS);
+    const bool vehicle_on =
+        throttle_fresh || left_torque_fresh || right_torque_fresh ||
+        frame_fresh(state.vcu_cluster_status_last_ms, now, VCU_STATUS_TIMEOUT_MS) ||
+        frame_fresh(state.vehicle_speed_last_rx_ms, now, VEHICLE_SPEED_TIMEOUT_MS) ||
+        state.hv_active;
     const VessOutput out = vess_compute({
+        state.vehicle_speed_kph,
+        state.vehicle_speed_valid,
         state.throttle_pct,
-        state.throttle_valid && !vcu_status_stale(millis()),
+        throttle_fresh,
+        state.torque_cmd_l_a,
+        left_torque_fresh,
+        state.torque_cmd_r_a,
+        right_torque_fresh,
+        vehicle_on,
         state.gear,
     });
     vess_write_pulse(out.pulse_us);
@@ -611,6 +680,7 @@ void modules_init() {
     pinMode(PIN_TC, INPUT_PULLUP);
     pinMode(PIN_REGEN_BIT0, INPUT_PULLUP);
     pinMode(PIN_REGEN_BIT1, INPUT); // GPIO34 has no internal pull-up; PCB must provide external 10k
+    pinMode(PIN_REGEN_TOGGLE, INPUT_PULLUP);
     pinMode(PIN_GPS_LAP_START, INPUT_PULLUP);
     can_bus::begin();
     gps_laptimer::begin();

@@ -140,7 +140,7 @@ void check_snapshot(CheckSnapshot &d, uint32_t now) {
     const uint32_t rtcm=ntrip::last_rtcm_ms();
     row(d.gps,5,"RTCM RX AGE",rtcm?"%.1fs %s":"-- WAIT",(now-rtcm)/1000.0,rtcm&&now-rtcm<=5000?"FRESH":"OLD");
     row(d.gps,6,"NTRIP DETAIL","%s",ntrip::status_label());
-    row(d.gps,7,"LAP / RUNNING","%u / %s",state.lap_count,on(gps_laptimer::timer_running()));
+    row(d.gps,7,"LAP / RUNNING","%u / %s",gps_laptimer::current_lap_number(),on(gps_laptimer::timer_running()));
     time_row(d.gps,8,"CURRENT LAP",state.current_lap_ms);
     time_row(d.gps,9,"LAST LAP",state.last_lap_ms);
     time_row(d.gps,10,"BEST LAP",state.best_lap_ms);
@@ -200,6 +200,6 @@ HomeData check_home_snapshot(uint32_t now) {
     d.hv=state.em_hv_decivolts/10.0f;d.lv=state.em_lv_centivolts/100.0f;
     const float em_current=state.em_current_deciamps/10.0f;
     d.power_kw=std::fabs(d.hv*em_current)/1000;d.charging=em_current<0;
-    d.lap=state.lap_count;d.best_lap=state.best_lap_count;d.lap_ms=state.current_lap_ms;d.best_ms=state.best_lap_ms;
+    d.lap=gps_laptimer::current_lap_number();d.best_lap=state.best_lap_count;d.lap_ms=state.current_lap_ms;d.best_ms=state.best_lap_ms;
     return d;
 }

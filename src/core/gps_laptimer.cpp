@@ -657,6 +657,11 @@ bool timer_paused() {
     return timing_paused;
 }
 
+uint8_t current_lap_number() {
+    if (!have_start) return 0;
+    return state.lap_count < 99 ? static_cast<uint8_t>(state.lap_count + 1) : 99;
+}
+
 float gga_rate_hz() {
     return gga_rate;
 }

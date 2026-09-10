@@ -18,6 +18,7 @@ uint32_t pps_count();
 uint32_t position_sequence();
 bool timer_running();
 bool timer_paused();
+uint8_t current_lap_number();
 float gga_rate_hz();
 float rmc_rate_hz();
 uint8_t fix_quality();

@@ -1,5 +1,10 @@
 .pio/
+.pio-core/
+.tmp/
 .vscode/
+doc_work/
+render_*.png
+render_*.log
 *.bin
 *.elf
 *.bmp

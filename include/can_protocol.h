@@ -18,6 +18,15 @@ constexpr uint8_t SA_CLUSTER      = 0xC0;
 constexpr uint8_t SA_CONTROLLER_L = 0xEF;
 constexpr uint8_t SA_CONTROLLER_R = 0xF0;
 constexpr uint8_t SA_ENERGY_METER = 0x17;
+constexpr uint8_t SA_EM_GW = 0xC1;
+constexpr uint32_t CAN_ID_EM_RECORD = 0x1CF5FFC1;
+constexpr uint32_t CAN_ID_EM_SYNC = 0x1CF6FFC1;
+
+struct EmVoltages {
+    int16_t hv_decivolts;
+    int16_t lv_centivolts;
+};
+EmVoltages decode_em_voltages(const uint8_t data[8]);
 
 // --- Torque command IDs (29-bit extended) ---
 constexpr uint32_t CAN_ID_TORQUE_L = 0x0C01EFD0;

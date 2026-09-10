@@ -110,7 +110,7 @@ void test_encode_regen_level_as_vcu_boolean(void) {
     encode_cluster_command({false, false, 0, false}, out);
     TEST_ASSERT_EQUAL_UINT8(0x00, out[1] & 0x06);
     encode_cluster_command({false, false, 1, false}, out);
-    TEST_ASSERT_EQUAL_UINT8(0x00, out[1] & 0x06);
+    TEST_ASSERT_EQUAL_UINT8(0x02, out[1] & 0x06);
     encode_cluster_command({false, false, 2, false}, out);
     TEST_ASSERT_EQUAL_UINT8(0x02, out[1] & 0x06);
     encode_cluster_command({false, false, 3, false}, out);
@@ -246,9 +246,21 @@ void test_encode_cluster_lap_status(void) {
 }
 
 void setUp(void) {}
+void test_em_voltage_decode(void) {
+    uint8_t data[8] = {0xD7, 0x12, 0x1D, 0xFA, 0x3E, 0x05, 0x4E, 0x0C};
+    auto v = decode_em_voltages(data);
+    TEST_ASSERT_EQUAL_INT16(4823, v.hv_decivolts);
+    TEST_ASSERT_EQUAL_INT16(1342, v.lv_centivolts);
+    data[0] = 0; data[1] = 0x80;
+    data[4] = 0xFF; data[5] = 0xFF;
+    v = decode_em_voltages(data);
+    TEST_ASSERT_EQUAL_INT16(-32768, v.hv_decivolts);
+    TEST_ASSERT_EQUAL_INT16(-1, v.lv_centivolts);
+}
 void tearDown(void) {}
 int main(int, char **) {
     UNITY_BEGIN();
+    RUN_TEST(test_em_voltage_decode);
     RUN_TEST(test_torque_offset);
     RUN_TEST(test_cluster_cmd_id);
     RUN_TEST(test_vcu_cluster_status_id);

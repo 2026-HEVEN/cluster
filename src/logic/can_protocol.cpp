@@ -5,6 +5,14 @@
 // ============================================================
 #include "can_protocol.h"
 
+EmVoltages decode_em_voltages(const uint8_t data[8]) {
+    const auto signed_le = [](const uint8_t *p) -> int16_t {
+        const uint32_t raw = (uint32_t)p[0] | ((uint32_t)p[1] << 8);
+        return (int16_t)(raw >= 0x8000 ? (int32_t)raw - 65536 : (int32_t)raw);
+    };
+    return {signed_le(data), signed_le(data + 4)};
+}
+
 uint16_t torque_to_raw(float amps) {
     return (uint16_t)((amps + 3200.0f) * 10.0f + 0.5f);
 }
@@ -67,7 +75,7 @@ int32_t clamp_i32_from_double(double value) {
 void encode_cluster_command(const ClusterCommand &cmd, uint8_t out[8]) {
     for (int i = 0; i < 8; i++) out[i] = 0;
     const uint8_t regen_level = cmd.regen_level > 3 ? 3 : cmd.regen_level;
-    const bool regen_enable = regen_level >= 2;
+    const bool regen_enable = regen_level > 0;
     out[1] = (cmd.tc_enabled ? 0x01 : 0x00) |
              (regen_enable ? 0x02 : 0x00) |
              (cmd.debug_enabled ? 0x08 : 0x00);

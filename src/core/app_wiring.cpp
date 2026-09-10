@@ -18,12 +18,16 @@
 #include "modules/widgets/widget_gear.h"
 #include "modules/widgets/widget_laptime.h"
 #include "modules/vess.h"
+#include "core/check_snapshot.h"
+#include <algorithm>
 #include <Arduino.h>
 #include <XPT2046_Touchscreen.h>
 #include <cstdio>
 
 // [LOCKED] The ONLY translation unit that touches `state`.
 ClusterState state;
+static DiagnosticHistory diagnostic_history;
+static TelemetryValues diagnostic_values;
 
 namespace {
     // Input pins (direct GPIO; if pin count runs short, an io_expander can be
@@ -31,9 +35,9 @@ namespace {
     constexpr int PIN_PADDOCK = 36; // SVP/GPIO36; external 10k pull-up required on PCB
     constexpr int PIN_TC = 25;
     constexpr int PIN_REGEN_BIT0 = 27; // regen rotary bit 0; ON=LOW
-    constexpr int PIN_REGEN_BIT1 = 34; // regen rotary bit 1; GPIO34 needs external 10k pull-up
+    constexpr int PIN_REGEN_BIT1 = 34; // regen bit 1; external 10k pull-up to 3.3V
+    constexpr int PIN_PAGE_BUTTON = 13; // WARNING_DETAIL momentary button; ON=LOW
     constexpr int PIN_VESS_PWM = 26;
-    constexpr int PIN_REGEN_TOGGLE = 13; // temporary regen enable push button
     constexpr int PIN_GPS_LAP_START = 32;     // set GPS lap start
     constexpr int PIN_TOUCH_CS = 23;        // XPT2046 touch chip select; touch toggles vehicle status
     constexpr uint8_t VESS_PWM_CHANNEL = 0;
@@ -53,24 +57,24 @@ namespace {
     constexpr float WHEEL_DIAMETER_M = 0.4597f;
     constexpr float MOTOR_TO_WHEEL_RATIO = 3.72f;
     constexpr float PI_F = 3.14159265f;
-    constexpr int TOUCH_RAW_MID_X = 2048;
-    constexpr bool TOUCH_RIGHT_IS_NEXT = true;
-    enum DisplayPage : uint8_t { PAGE_MAIN = 0, PAGE_CAR_CHECK = 1, PAGE_WARNING_DETAIL = 2 };
-    constexpr uint8_t DISPLAY_PAGE_COUNT = 3;
+    // Raw calibration bounds need a four-corner check on the physical LCD.
+    constexpr int TOUCH_MIN = 200, TOUCH_MAX = 3900;
     FrameBuffer fb;
-    DisplayPage display_page = PAGE_MAIN;
+    CheckUi check_ui;
+    bool ui_warning = false;
+    int touch_start_x = 0, touch_start_y = 0, touch_last_x = 0;
+    bool touch_dragged = false;
     bool status_touch_down = false;
+    bool page_button_raw_down = false;
+    bool page_button_stable_down = false;
+    uint32_t page_button_changed_ms = 0;
     uint32_t status_touch_last_ms = 0;
-    constexpr uint32_t STATUS_TOUCH_DEBOUNCE_MS = 120;
     constexpr uint32_t GPS_LAP_DOUBLE_CLICK_MS = 320;
     XPT2046_Touchscreen touch(PIN_TOUCH_CS);
     bool gps_lap_start_button_down = false;
     uint32_t gps_lap_start_button_last_ms = 0;
     bool gps_lap_start_single_pending = false;
     uint32_t gps_lap_start_click_ms = 0;
-    bool regen_toggle_button_down = false;
-    uint32_t regen_toggle_button_last_ms = 0;
-    bool regen_toggle_enabled = true;
     const char *lap_notice_label = nullptr;
     uint32_t lap_notice_until_ms = 0;
     bool gps_fix_was_ok = false;
@@ -78,7 +82,6 @@ namespace {
     uint32_t last_gnss_position_seq_sent = 0;
     uint32_t can_warning_since_ms = 0;
 
-    int gear_code(uint8_t gear) { return gear <= 3 ? gear : 0; }
 
     uint32_t vess_pulse_us_to_duty(uint16_t pulse_us) {
         const uint32_t period_us = 1000000UL / VESS_PWM_FREQUENCY_HZ;
@@ -168,197 +171,7 @@ namespace {
         gps_fix_was_ok = fix_ok;
     }
 
-    void page_next() {
-        display_page = (DisplayPage)(((uint8_t)display_page + 1) % DISPLAY_PAGE_COUNT);
-    }
-
-    void page_prev() {
-        display_page = display_page == PAGE_MAIN ? PAGE_WARNING_DETAIL
-                                                 : (DisplayPage)((uint8_t)display_page - 1);
-    }
-
-    const char *fresh_label(uint32_t last_ms, uint32_t now, uint32_t timeout_ms) {
-        if (last_ms == 0) return "WAIT";
-        return frame_fresh(last_ms, now, timeout_ms) ? "OK" : "ERR";
-    }
-
-    const char *dual_fresh_label(uint32_t last_a, uint32_t last_b,
-                                 uint32_t now, uint32_t timeout_ms) {
-        if (last_a == 0 || last_b == 0) return "WAIT";
-        return frame_fresh(last_a, now, timeout_ms) &&
-               frame_fresh(last_b, now, timeout_ms) ? "OK" : "ERR";
-    }
-
-    const char *on_off(bool value) {
-        return value ? "ON" : "OFF";
-    }
-
-    const char *motor_heat_label(uint8_t err1) {
-        return (err1 & (1u << 5)) ? "HOT" : "OK";
-    }
-
-    const char *ctrl_heat_label(uint8_t err1) {
-        return (err1 & (1u << 4)) ? "HOT" : "OK";
-    }
-
-    const char *volt_label(uint8_t err1) {
-        if (err1 & (1u << 2)) return "OVER";
-        if (err1 & (1u << 3)) return "LOW";
-        return "OK";
-    }
-
-    const uint8_t *status_glyph(char c) {
-        static const uint8_t glyph_b[7] = {0x1E,0x11,0x11,0x1E,0x11,0x11,0x1E};
-        static const uint8_t glyph_s[7] = {0x0F,0x10,0x10,0x0E,0x01,0x01,0x1E};
-        if (c == 'B') return glyph_b;
-        if (c == 'S') return glyph_s;
-        return font_glyph(c);
-    }
-
-    void status_text(int x, int y, const char *text, int scale) {
-        if (scale < 1) scale = 1;
-        int cx = x;
-        for (const char *p = text; *p; ++p) {
-            const uint8_t *g = status_glyph(*p);
-            if (g) {
-                for (int r = 0; r < 7; ++r) {
-                    for (int c = 0; c < 5; ++c) {
-                        if (g[r] & (0x10 >> c)) {
-                            fb_rect(fb, cx + c * scale, y + r * scale,
-                                    scale, scale, true, true);
-                        }
-                    }
-                }
-            }
-            cx += 6 * scale;
-        }
-    }
-
-    void status_line(int &y, const char *text, int scale) {
-        status_text(8, y, text, scale);
-        y += scale * 8 + 1;
-    }
-
-    bool side_fault(uint8_t err1, uint8_t err2, uint8_t err3) {
-        return err1 || err2 || err3;
-    }
-
-    const char *fault_label(uint8_t err1, uint8_t err2, uint8_t err3) {
-        return side_fault(err1, err2, err3) ? "FAULT" : "OK";
-    }
-
-    void draw_side_wait(int &y, const char *side, const char *label) {
-        char buf[48];
-
-        std::snprintf(buf, sizeof(buf), "%s %s", side, label);
-        status_line(y, buf, 2);
-        status_line(y, "MTR ---C WAIT", 2);
-        status_line(y, "CTRL ---C WAIT", 2);
-        status_line(y, "VOLT ---.-- WAIT", 2);
-    }
-
-    void draw_side_status(int &y, const char *side, const char *link_label,
-                          int motor_temp, int ctrl_temp,
-                          float voltage, uint8_t err1, uint8_t err2, uint8_t err3) {
-        char buf[48];
-        if (link_label[0] != 'O' || link_label[1] != 'K' || link_label[2] != '\0') {
-            draw_side_wait(y, side, link_label);
-            return;
-        }
-
-        std::snprintf(buf, sizeof(buf), "%s %s", side, fault_label(err1, err2, err3));
-        status_line(y, buf, 2);
-
-        std::snprintf(buf, sizeof(buf), "MTR %03dC %s", motor_temp, motor_heat_label(err1));
-        status_line(y, buf, 2);
-
-        std::snprintf(buf, sizeof(buf), "CTRL %03dC %s", ctrl_temp, ctrl_heat_label(err1));
-        status_line(y, buf, 2);
-
-        std::snprintf(buf, sizeof(buf), "VOLT %03d.%01d %s",
-                      (int)voltage, ((int)(voltage * 10.0f)) % 10, volt_label(err1));
-        status_line(y, buf, 2);
-    }
-
-    void draw_vehicle_status() {
-        const uint32_t now = millis();
-        char buf[48];
-        const char *left_can_label = dual_fresh_label(state.controller_l_fb1_last_ms,
-                                                      state.controller_l_fb2_last_ms,
-                                                      now, CONTROLLER_FRAME_TIMEOUT_MS);
-        const char *right_can_label = dual_fresh_label(state.controller_r_fb1_last_ms,
-                                                       state.controller_r_fb2_last_ms,
-                                                       now, CONTROLLER_FRAME_TIMEOUT_MS);
-
-        fb_text(fb, 8, 4, "CAR CHECK", 3);
-
-        int y = 31;
-        std::snprintf(buf, sizeof(buf), "CAN L %s R %s",
-                      left_can_label, right_can_label);
-        status_line(y, buf, 2);
-
-        std::snprintf(buf, sizeof(buf), "VCU %s HV %s",
-                      fresh_label(state.vcu_cluster_status_last_ms, now, VCU_STATUS_TIMEOUT_MS),
-                      on_off(state.hv_active));
-        status_line(y, buf, 2);
-
-        const bool bms_ok = state.bms_ble_connected && state.bms_last_rx_ms != 0;
-        const int soc_pct = state.soc_valid ? (int)(state.soc * 100.0f + 0.5f) : -1;
-        if (bms_ok && soc_pct >= 0) {
-            const int pack_v = (int)(state.bms_pack_voltage + 0.5f);
-            std::snprintf(buf, sizeof(buf), "BMS OK %03d%% %02dV", soc_pct, pack_v);
-        } else {
-            std::snprintf(buf, sizeof(buf), "BMS WAIT ---");
-        }
-        status_line(y, buf, 2);
-
-        fb_vline(fb, 194, 39, 48, true);
-        const char *gps_status = state.gps_fix_ok ? "GPS OK" :
-                                 (state.gps_data_ok ? "GPS SEARCH" : "GPS NO DATA");
-        status_text(210, 39, gps_status, 1);
-        if (state.gps_fix_ok) {
-            std::snprintf(buf, sizeof(buf), "LAT %.5f", state.gps_latitude);
-            status_text(202, 60, buf, 1);
-            std::snprintf(buf, sizeof(buf), "LON %.5f", state.gps_longitude);
-            status_text(202, 73, buf, 1);
-        } else {
-            status_text(202, 60, "LAT --.-----", 1);
-            status_text(202, 73, "LON ---.-----", 1);
-        }
-        const unsigned lap = state.lap_count > 99 ? 99 : state.lap_count;
-        const unsigned minutes = (unsigned)((state.current_lap_ms / 60000UL) % 100UL);
-        const unsigned seconds = (unsigned)((state.current_lap_ms / 1000UL) % 60UL);
-        const unsigned centis = (unsigned)((state.current_lap_ms / 10UL) % 100UL);
-        std::snprintf(buf, sizeof(buf), "LAP %02u", lap);
-        status_text(214, 101, buf, 2);
-        if (state.gps_fix_ok) {
-            std::snprintf(buf, sizeof(buf), "%02u:%02u.%02u",
-                          minutes, seconds, centis);
-        } else {
-            std::snprintf(buf, sizeof(buf), "--:--.--");
-        }
-        status_text(206, 123, buf, 2);
-        status_text(206, 146, state.paddock_active ? "PDK ON" : "PDK OFF", 1);
-        status_text(206, 159, gps_laptimer::rtk_status_label(), 1);
-        status_text(206, 172, ntrip::status_label(), 1);
-
-        const uint32_t rtcm_ms = ntrip::last_rtcm_ms();
-        const char *rtcm_status = rtcm_ms == 0 ? "RTCM WAIT" :
-                                  (now - rtcm_ms <= 5000UL ? "RTCM OK" : "RTCM OLD");
-        status_text(206, 185, rtcm_status, 1);
-
-        y += 3;
-        draw_side_status(y, "LEFT", left_can_label,
-                         state.motor_temp, state.controller_temp,
-                         state.bus_voltage, state.error1, state.error2, state.error3);
-
-        y += 3;
-        draw_side_status(y, "RIGHT", right_can_label,
-                         state.motor_temp_r, state.controller_temp_r,
-                         state.bus_voltage_r, state.error1_r, state.error2_r, state.error3_r);
-    }
-
-    void draw_warning_detail() {
+    void collect_warnings(CheckSnapshot &snapshot) {
         static const char *const left_labels[3][8] = {
             {"L OVER CURRENT", "L OVER LOAD", "L OVER VOLT", "L LOW VOLT",
              "L CTRL HOT", "L MOTOR HOT", "L MOTOR STALL", "L MOTOR PHASE"},
@@ -403,51 +216,43 @@ namespace {
         }
         if (vcu_status_stale(now)) add_warning(labels, count, "VCU CAN TIMEOUT");
 
-        if (count == 0) {
-            fb_text(fb, 40, 14, "WARNING", 5);
-            fb_text(fb, 40, 112, "NO ERROR", 5);
-            return;
-        }
-
-        fb_text(fb, 8, 5, "WARNING", 3);
-        const int scale = count <= 6 ? 3 : (count <= 22 ? 2 : 1);
-        const int step = scale * 8 + 1;
-        const bool two_columns = count > 6;
-        const int rows_per_column = two_columns ? (count + 1) / 2 : count;
-        int y = scale == 1 ? 25 : 38;
-        if (!two_columns && count <= 3) y = 76;
-
-        for (int i = 0; i < count; ++i) {
-            const int column = two_columns ? i / rows_per_column : 0;
-            const int row = two_columns ? i % rows_per_column : i;
-            fb_text(fb, column == 0 ? 8 : 164, y + row * step, labels[i], scale);
-        }
+        snapshot.warning_count = count;
+        for (int i = 0; i < count; ++i) snapshot.warnings[i] = labels[i];
     }
 
-    void regen_toggle_update() {
-        const bool down = digitalRead(PIN_REGEN_TOGGLE) == LOW;
+    void page_button_update() {
         const uint32_t now = millis();
-        if (down != regen_toggle_button_down && now - regen_toggle_button_last_ms >= 50) {
-            regen_toggle_button_down = down;
-            regen_toggle_button_last_ms = now;
-            if (down) {
-                regen_toggle_enabled = !regen_toggle_enabled;
-                show_lap_notice(regen_toggle_enabled ? "RGN ON" : "RGN OFF", now);
-            }
+        const bool down = digitalRead(PIN_PAGE_BUTTON) == LOW;
+        if (down != page_button_raw_down) {
+            page_button_raw_down = down;
+            page_button_changed_ms = now;
+        }
+        if (down != page_button_stable_down && now - page_button_changed_ms >= 50) {
+            page_button_stable_down = down;
+            if (down) check_ui.home();
         }
     }
 
     void status_touch_update() {
         const bool down = touch.touched();
         const uint32_t now = millis();
-        if (down != status_touch_down && now - status_touch_last_ms >= STATUS_TOUCH_DEBOUNCE_MS) {
-            status_touch_down = down;
-            status_touch_last_ms = now;
-            if (down) {
-                TS_Point p = touch.getPoint();
-                const bool right_side = p.x < TOUCH_RAW_MID_X;
-                if (right_side == TOUCH_RIGHT_IS_NEXT) page_next();
-                else page_prev();
+        if (down) {
+            TS_Point p = touch.getPoint();
+            const int x = std::max(0, std::min(319, (TOUCH_MAX-p.x)*319/(TOUCH_MAX-TOUCH_MIN)));
+            const int y = std::max(0, std::min(239, (p.y-TOUCH_MIN)*239/(TOUCH_MAX-TOUCH_MIN)));
+            if (!status_touch_down) {
+                status_touch_down = true;
+                touch_start_x = touch_last_x = x; touch_start_y = y;
+                touch_dragged = false;
+                status_touch_last_ms = now;
+            } else {
+                if (abs(x-touch_start_x)>10 || abs(y-touch_start_y)>10) touch_dragged = true;
+                touch_last_x = x;
+            }
+        } else if (status_touch_down) {
+            status_touch_down = false;
+            if (!touch_dragged && now-status_touch_last_ms>=40) {
+                check_ui.tap(touch_start_x,touch_start_y,ui_warning);
             }
         }
     }
@@ -473,9 +278,10 @@ namespace {
         if (gps_lap_start_single_pending &&
             now - gps_lap_start_click_ms > GPS_LAP_DOUBLE_CLICK_MS) {
             gps_lap_start_single_pending = false;
-            if (warning_active()) {
-                gps_laptimer::stop();
-                show_lap_notice("LAP STOPPED", now);
+            if (gps_laptimer::timer_paused()) {
+                if (gps_laptimer::resume()) show_lap_notice("LAP RESUMED", now);
+            } else if (warning_active()) {
+                if (gps_laptimer::stop()) show_lap_notice("LAP STOPPED", now);
             } else if (gps_laptimer::start_at_current_fix()) {
                 show_lap_notice("LAP START SET", now);
             } else if (!gps_signal_fresh(now)) {
@@ -548,15 +354,14 @@ static void hmi_update() {
     refresh_can_timeouts();
     gps_fix_feedback_update();
     gps_lap_start_update();
-    regen_toggle_update();
+    page_button_update();
     status_touch_update();
 
     HmiSwitches sw;
     sw.paddock       = digitalRead(PIN_PADDOCK) == LOW;
     sw.tc_enabled    = digitalRead(PIN_TC) == LOW;
-    const uint8_t regen_level = regen_toggle_enabled ? 2u : 0u;
-    sw.regen_bit0 = (regen_level & 0x01) != 0;
-    sw.regen_bit1 = (regen_level & 0x02) != 0;
+    sw.regen_bit0 = digitalRead(PIN_REGEN_BIT0) == LOW;
+    sw.regen_bit1 = digitalRead(PIN_REGEN_BIT1) == LOW;
     sw.debug_enabled = false; // GPIO26 is now the local VESS PWM output.
     ClusterCommand cmd = hmi_compute(sw);
     if (!state.gear_from_can) {
@@ -627,24 +432,19 @@ static void lap_can_tx_update() {
     can_bus::send_lap_time();
     can_bus::send_lap_status(gps_laptimer::timer_running());
 }
+static void diagnostics_update() { check_observe(diagnostic_history, diagnostic_values, millis()); }
 static void display_update() {
     fb.clear();
     const bool warn = warning_active();
-    if (display_page == PAGE_CAR_CHECK) {
-        draw_vehicle_status();
-    } else if (display_page == PAGE_WARNING_DETAIL) {
-        draw_warning_detail();
+    ui_warning = warn;
+    if (!warn && check_ui.page == CheckPage::Warning) check_ui.page = CheckPage::Menu;
+    if (check_ui.page != CheckPage::Home) {
+        static CheckSnapshot snapshot;
+        if (check_ui.page != CheckPage::Graph) check_snapshot(snapshot, millis());
+        if (check_ui.page == CheckPage::Warning) collect_warnings(snapshot);
+        check_draw(fb, check_ui, snapshot, diagnostic_history, diagnostic_values, millis());
     } else {
-        widget_speed_draw(fb,    10,  18, (int)(state.vehicle_speed_kph + 0.5f));
-        widget_warnings_draw(fb, 272,  60, warn, state.hv_active,
-                             state.regen_level);
-        widget_gear_draw(fb,     270,   8, gear_code(state.gear));
-        const int soc_pct = state.soc_valid ? (int)(state.soc * 100.0f + 0.5f) : -1;
-        widget_battery_draw(fb, 270,  86, soc_pct);
-        widget_laptime_draw(fb,  18, 171, state.lap_count,
-                            state.current_lap_ms, state.gps_fix_ok);
-        widget_best_lap_draw(fb, 18, 199, state.best_lap_count,
-                             state.best_lap_ms);
+        check_home_draw(fb, check_home_snapshot(millis()), warn);
     }
     draw_lap_notice(millis());
     display_blit::show(fb, warn);
@@ -661,11 +461,14 @@ Task g_tasks[] = {
     { lap_can_tx_update, 200, 0 },          // 5 Hz lap telemetry
     { hmi_update,     20, 0 },   // 50 Hz
     { vess_update,    20, 0 },   // 50 Hz VESS throttle-to-PWM output
-    { display_update, 66, 0 },   // ~15 Hz
+    { diagnostics_update, 20, 0 }, // observe validity/edges; numeric history sampled at 2 Hz
+    { display_update, 50, 0 },   // 20 Hz target; independent of history sampling
 };
 const int G_TASK_COUNT = sizeof(g_tasks) / sizeof(g_tasks[0]);
 
 void modules_init() {
+    Serial.printf("[DIAGNOSTICS] history %u bytes, 2Hz/60s, volatile events\n",
+                  static_cast<unsigned>(sizeof(diagnostic_history)));
     pinMode(PIN_TOUCH_CS, OUTPUT);
     digitalWrite(PIN_TOUCH_CS, HIGH);
     display_blit::begin();
@@ -679,8 +482,8 @@ void modules_init() {
     pinMode(PIN_PADDOCK, INPUT); // GPIO36 has no internal pull-up; PCB provides external 10k
     pinMode(PIN_TC, INPUT_PULLUP);
     pinMode(PIN_REGEN_BIT0, INPUT_PULLUP);
-    pinMode(PIN_REGEN_BIT1, INPUT); // GPIO34 has no internal pull-up; PCB must provide external 10k
-    pinMode(PIN_REGEN_TOGGLE, INPUT_PULLUP);
+    pinMode(PIN_REGEN_BIT1, INPUT); // external 10k pull-up required
+    pinMode(PIN_PAGE_BUTTON, INPUT_PULLUP);
     pinMode(PIN_GPS_LAP_START, INPUT_PULLUP);
     can_bus::begin();
     gps_laptimer::begin();

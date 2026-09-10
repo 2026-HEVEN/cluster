@@ -15,6 +15,8 @@ namespace can_bus {
 
 void begin() {
     twai_general_config_t g = TWAI_GENERAL_CONFIG_DEFAULT(GPIO_NUM_18, GPIO_NUM_17, TWAI_MODE_NORMAL);
+    // Absorb telemetry bursts while the shared task renders/transfers an LCD frame.
+    g.rx_queue_len = 64;
     twai_timing_config_t  t = TWAI_TIMING_CONFIG_250KBITS();
     twai_filter_config_t  f = TWAI_FILTER_CONFIG_ACCEPT_ALL();
     twai_driver_install(&g, &t, &f);
@@ -42,7 +44,7 @@ namespace {
         }
     }
 
-    // Part I: bytes 0-1 voltage, 2-3 bus current, 4-5 phase current (unused), 6-7 speed.
+    // Part I: bytes 0-1 voltage, 2-3 bus current, 4-5 phase current, 6-7 speed.
     void decode_fb1(const uint8_t *d, float &voltage, float &current, float &speed) {
         voltage = raw_to_voltage(u16le(d + 0));
         current = raw_to_current(u16le(d + 2));
@@ -153,13 +155,25 @@ namespace {
 void poll_rx() {
     twai_message_t m;
     while (twai_receive(&m, 0) == ESP_OK) {
-        if (!m.extd || m.data_length_code < 8) continue;
+        if (!m.extd || m.rtr || m.data_length_code != 8) continue;
         const uint32_t now = millis();
+        if (state.car_check.receive(m.identifier, m.data, m.data_length_code, m.extd, m.rtr, now)) continue;
         if ((m.identifier == CAN_ID_FB1_L || m.identifier == CAN_ID_FB1_R) &&
             is_ezkontrol_handshake_probe(m.data)) {
             continue;
         }
         switch (m.identifier) {
+            case CAN_ID_EM_RECORD: {
+                const EmVoltages volts = decode_em_voltages(m.data);
+                state.em_hv_decivolts = volts.hv_decivolts;
+                state.em_lv_centivolts = volts.lv_centivolts;
+                const uint16_t amps = u16le(m.data + 2), temp = u16le(m.data + 6);
+                state.em_current_deciamps = amps < 32768 ? amps : static_cast<int32_t>(amps)-65536;
+                state.em_cpu_centidegrees = temp < 32768 ? temp : static_cast<int32_t>(temp)-65536;
+                state.em_record_last_ms = now;
+                state.em_record_seen = true;
+                break;
+            }
             case CAN_ID_TORQUE_L:
                 if (!is_ezkontrol_handshake_ack(m.data)) {
                     state.torque_cmd_l_a = decode_motor_target_current_a(m.data);
@@ -173,12 +187,14 @@ void poll_rx() {
                 }
                 break;
             case CAN_ID_FB1_L:
+                state.phase_current = raw_to_current(u16le(m.data + 4));
                 decode_fb1(m.data, state.bus_voltage, state.bus_current, state.speed_rpm_l);
                 state.controller_l_seen = true;
                 state.controller_l_fb1_last_ms = now;
                 update_display_rpm();
                 break;
             case CAN_ID_FB1_R:
+                state.phase_current_r = raw_to_current(u16le(m.data + 4));
                 decode_fb1(m.data, state.bus_voltage_r, state.bus_current_r, state.speed_rpm_r);
                 state.controller_r_seen = true;
                 state.controller_r_fb1_last_ms = now;
@@ -200,6 +216,8 @@ void poll_rx() {
                 break;
             case CAN_ID_VCU_VEHICLE_SPEED:
                 decode_vcu_vehicle_speed(m.data, state.vehicle_speed_kph, state.vehicle_speed_valid);
+                state.wss_kph = state.vehicle_speed_kph;
+                state.wss_valid = state.vehicle_speed_valid;
                 state.vehicle_speed_last_rx_ms = now;
                 break;
             default:

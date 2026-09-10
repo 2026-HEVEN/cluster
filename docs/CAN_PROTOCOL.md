@@ -165,14 +165,27 @@
 | 바이트 | 항목 | 의미 |
 |--------|------|------|
 | 0 | Reserved | 0 |
-| 1 | Config flags | bit0: TC-labelled TV enable, bit1: Regen Auto enable(`Cluster RGN 2~3`이면 1, `RGN 0~1`이면 0), bit2: reserved(0), bit3: Debug legacy request(현재 Cluster GPIO26에서는 사용하지 않아 0), bit7-4: reserved(0) |
+| 1 | Config flags | bit0: TC-labelled TV enable, bit1: Regen Auto enable(`Cluster RGN 1~3`이면 1, `RGN 0`이면 0), bit2: reserved(0), bit3: Debug legacy request(현재 Cluster GPIO26에서는 사용하지 않아 0), bit7-4: reserved(0) |
 | 2 | Flags | bit0: Paddock request, bit7-1: reserved(0) |
 | 3~7 | 예약 | 0 |
 
 > ⚠️ 패독은 **요청 신호**일 뿐. VCU가 토크/속도를 상한 이하로 클램프하고 CAN 끊김 시 fail-safe(제한 유지)를 결정해야 함.
 > ⚠️ 회생제동 토글도 **요청 신호**다. bit1=1이면 VCU 자동 회생제동 허용, bit1=0이면 회생제동 OFF 요청으로 해석한다. 실제 회생 전류와 차단 여부는 VCU가 배터리 전압/SOC/BMS fault/속도 조건을 기준으로 최종 제한해야 한다.
-> 현재 임시 운용에서는 로터리 스위치 대신 `WARNING_DETAIL` 순간버튼(GPIO13)이 RGN ON/OFF를 토글한다. 부팅 기본값은 ON이며, Cluster 내부에서는 ON=level 2, OFF=level 0으로 처리한다.
+> 회생제동은 로터리 스위치 GPIO27(bit0), GPIO34(bit1)의 active-low 입력으로 결정한다. GPIO27은 내부 풀업, GPIO34는 3.3V에 외부 10k 풀업을 사용한다. 0단은 OFF, 1~3단은 ON이며 부팅 시에도 실제 스위치 위치를 따른다. RGN은 Car Check에서 ON/OFF 요청 상태로 표시하며 기본 화면에서는 표시하지 않는다.
+> 배선팀 인계(2026-09-07 확정): GPIO13으로 로터리를 옮기는 제안은 철회한다. 로터리 공통 접점은 GND, bit0은 GPIO27, bit1은 GPIO34에 연결한다. GPIO13 WARNING_DETAIL 순간버튼은 GPIO13과 GND 사이에 연결하며 내부 풀업을 사용한다. 버튼을 누를 때마다 기본 화면 → Car Check → Warning 상세 → 기본 화면으로 순환한다(50ms 디바운스, 길게 눌러도 반복 전환 없음). GPIO26 VESS PWM 출력과 GPIO25 TC 스위치 배선은 유지한다. Paddock GPIO36의 외부 풀업도 별도로 유지한다.
+> VCU/토크벡터링팀 인계: TC 스위치의 기능은 토크벡터링 ON/OFF 요청이다. 기존 0x1801D0C0 Byte1 bit0을 그대로 사용하며 VCU에서 실제 적용 여부를 확인해야 한다. 회생제동 요청은 동일 프레임 Byte1 bit1로 0단=0, 1~3단=1을 송신한다(강도 3단계 구분 없음). GPIO13 페이지 전환은 Cluster 내부 기능으로 CAN 요청을 보내지 않는다.
 > VESS는 CAN 커맨드에 싣지 않는다. Cluster GPIO26이 ESS-DUAL+ RX-TH로 50Hz servo PWM을 직접 출력한다. 현재 구현은 VCU throttle feedback을 우선 사용하고, 없으면 모터 target current/차량속도 순서로 fallback한다.
+
+### EM Gateway 전압 표시 (2026-09-07)
+
+- EM Gateway SA: `0xC1`. `0x1CF5FFC1` RECORD는 Extended, DLC 8, 10ms 주기이다.
+- Byte0~1: signed int16 LE, HV bus voltage ×0.1V. Byte4~5: signed int16 LE, LV supply voltage ×0.01V. 영점 보정을 중복 적용하지 않는다.
+- Cluster는 RECORD를 수신만 하며 재송신하지 않는다. 마지막 RECORD 수신 후 500ms 초과 또는 미수신이면 전압은 `-- V`로 표시한다. 실제 0V는 숫자로 표시한다.
+- `0x1CF6FFC1` SYNC는 ID만 예약하며 이번 전압 표시는 RECORD 수신 시각을 사용한다. SD 기록 상태와 전압 유효성을 혼동하지 않는다.
+- 기본 화면: HV/RGN 네모를 제거하고 HV SOC 글귀와 14×64px 게이지를 위로 이동한다. 퍼센트를 유지하고 HV/LV 전압 숫자는 2배 크기로 표시한다(범위를 벗어날 만큼 긴 문자열은 1배로 축소). LV SOC와 LV 게이지는 표시하지 않는다. HV SOC는 BLE BMS의 유효한 최근 값(5초 이내)을 사용한다.
+- Car Check의 HV 상태는 기존 VCU HV active 비트로 표시한다. RGN은 Cluster 회생제동 요청 상태로서 VCU 적용 확인값이 아니다. EM bus voltage 및 BMS SOC는 서로 다른 측정 지점/원천임에 유의한다.
+- VCU팀 인계: SA_EM_GW 및 CAN_ID_EM_RECORD/CAN_ID_EM_SYNC 정의를 VCU 공유 헤더에도 반영 필요. 이번 작업은 Cluster 저장소만 변경했다.
+- 배선팀 인계: Cluster에 별도 전압 ADC 배선은 필요 없으며 EM Gateway와 기존 250kbps CAN 버스를 공유한다. LV 전압은 EM 공급전압 측정 지점의 값이다.
 
 ### 5.8 VCU → Cluster : 표시 상태  `0x1801C0D0` (HEVEN 정의) · 50~100ms 권장
 
@@ -307,6 +320,19 @@ METER 경로(§5.5/5.6, 0.1rpm/bit)는 이 설계에서 사용하지 않는다 �
 ---
 
 ## 9. 변경 관리
+
+### Car Check 수신 계약 추가 (2026-09-09)
+
+VCU Car Check v1 계약은 별도 미러 헤더 `include/car_check_protocol.h`에 정의한다. 기존 ID를 재할당하거나 VCU 정보를 Cluster에서 재송신하지 않는다. 기준 VCU 커밋: `8498e2f20cfa79f8c71416a25a2676677b59a270`.
+
+| ID | 송신 → 수신 | 주기 | 주요 내용 |
+| --- | --- | --- | --- |
+| `0x1804C0D0` | VCU → Cluster/TMA-1 | 50 ms | Steering int16 LE ×0.001, Byte6 valid/metadata, Byte7 life |
+| `0x1805C0D0` | VCU → Cluster/TMA-1 | 50 ms | Yaw deg/s, accel X/Y g, int16 LE ×0.01, Byte6 valid/metadata, Byte7 life |
+| `0x1806C0D0` | VCU → Cluster/TMA-1 | 50 ms | FL/FR/RL/RR uint16 LE ×0.1 km/h, 0xFFFF invalid |
+| `0x1807C0D0` | VCU → Cluster/TMA-1 | 50 ms | v1, 요청 수신값, 제어 상태와 차단 이유, life |
+
+모두 Extended/DLC8. 300 ms 초과 시 stale. 구버전 Steering/IMU의 유효성 메타데이터가 없거나 Control 버전이 다르면 UNKNOWN으로 취급한다. 세부 비트 정의와 남은 요청은 `docs/ui_report/CAN_DATA_REQUIRED.md`를 참조한다.
 
 - 이 파일과 `include/can_protocol.h`는 **글자 단위로 일치**해야 한다.
 - 수정 시: ① 이 문서 갱신 → ② 양 레포의 `can_protocol.h` 동기화 → ③ 변경 요약을 팀 공지.

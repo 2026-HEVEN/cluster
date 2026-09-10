@@ -13,8 +13,8 @@ void widget_warnings_draw(FrameBuffer &fb, int x, int y, bool fault, bool hv,
     (void)fault;
     if (regen_level > 3) regen_level = 3;
     fb_text(fb, x, y - 14, "RGN", 1);
-    indicator_box(fb, x + 24, y - 14, regen_level >= 2);
+    indicator_box(fb, x + 24, y - 14, regen_level > 0);
 
-    fb_text(fb, x, y, "HV", 1);
-    indicator_box(fb, x + 18, y, hv);
+    fb_text(fb, x, y, "HV", 2);
+    fb_rect(fb, x + 27, y, 14, 14, hv, true);
 }

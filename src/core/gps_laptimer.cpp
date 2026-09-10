@@ -59,6 +59,9 @@ bool have_start = false;
 bool lap_armed = false;
 bool waiting_departure = false;
 bool timing_active = false;
+bool timing_paused = false;
+bool paused_waiting_departure = false;
+uint32_t paused_lap_ms = 0;
 bool latest_fix = false;
 double start_lat = 0.0;
 double start_lon = 0.0;
@@ -545,6 +548,9 @@ bool start_at_current_fix() {
     lap_armed = false;
     waiting_departure = true;
     timing_active = false;
+    timing_paused = false;
+    paused_waiting_departure = false;
+    paused_lap_ms = 0;
     finish_line_ready = false;
     finish_heading_x = 0.0f;
     finish_heading_y = 0.0f;
@@ -559,12 +565,38 @@ bool start_at_current_fix() {
     return true;
 }
 
-void stop() {
-    lap_armed = false;
+bool stop() {
+    if (!have_start || timing_paused || (!timing_active && !waiting_departure)) return false;
+
+    paused_waiting_departure = waiting_departure;
+    paused_lap_ms = timing_active && last_cross_ms != 0
+        ? millis() - last_cross_ms
+        : state.current_lap_ms;
+    timing_paused = true;
     waiting_departure = false;
     timing_active = false;
     departure_speed_since_ms = 0;
-    state.current_lap_ms = 0;
+    state.current_lap_ms = paused_lap_ms;
+    return true;
+}
+
+bool resume() {
+    if (!have_start || !timing_paused) return false;
+
+    timing_paused = false;
+    if (paused_waiting_departure) {
+        waiting_departure = true;
+        timing_active = false;
+        departure_speed_since_ms = 0;
+        state.current_lap_ms = 0;
+    } else {
+        waiting_departure = false;
+        timing_active = true;
+        last_cross_ms = millis() - paused_lap_ms;
+        state.current_lap_ms = paused_lap_ms;
+    }
+    paused_waiting_departure = false;
+    return true;
 }
 
 void reset() {
@@ -572,6 +604,9 @@ void reset() {
     lap_armed = false;
     waiting_departure = false;
     timing_active = false;
+    timing_paused = false;
+    paused_waiting_departure = false;
+    paused_lap_ms = 0;
     finish_line_ready = false;
     finish_heading_x = 0.0f;
     finish_heading_y = 0.0f;
@@ -616,6 +651,10 @@ uint32_t position_sequence() {
 
 bool timer_running() {
     return timing_active;
+}
+
+bool timer_paused() {
+    return timing_paused;
 }
 
 float gga_rate_hz() {

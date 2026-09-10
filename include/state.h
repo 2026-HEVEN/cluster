@@ -5,10 +5,21 @@
 // ============================================================
 #pragma once
 #include <cstdint>
+#include "modules/car_check_receiver.h"
 // [LOCKED] Cluster shared state bus. ONLY core/app_wiring.cpp may include this.
 // Module files (src/modules/*) must never include state.h.
 
 struct ClusterState {
+    CarCheckReceiver car_check;
+    bool em_record_seen = false;
+    uint32_t em_record_last_ms = 0;
+    int16_t em_hv_decivolts = 0;
+    int16_t em_lv_centivolts = 0;
+    int16_t em_current_deciamps = 0;
+    int16_t em_cpu_centidegrees = 0;
+    float phase_current = 0.0f, phase_current_r = 0.0f;
+    float wss_kph = 0.0f;
+    bool wss_valid = false;
     // received vehicle state (from CAN, sniffed off VCU feedback frames)
     // speed_rpm is the LCD/display aggregate: abs(left) until both sides are
     // seen, then avg(abs(left), abs(right)).

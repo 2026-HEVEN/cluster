@@ -4,6 +4,7 @@
 // per-widget allocated space. Run: pio test -e native -f test_render_layout
 #include <unity.h>
 #include "framebuffer.h"
+#include "modules/diagnostics.h"
 #include "modules/widgets/widget_speed.h"
 #include "modules/widgets/widget_battery.h"
 #include "modules/widgets/widget_warnings.h"
@@ -66,82 +67,15 @@ void render_framebuffer(std::vector<uint8_t> &rgb, const FrameBuffer &fb,
     }
 }
 
-void draw_normal_layout(FrameBuffer &fb, bool warning) {
+void draw_normal_layout(FrameBuffer &fb, bool warning, int soc = 78,
+                        int16_t hv = 537, int16_t lv = 1342, bool fresh = true) {
     fb.clear();
     widget_speed_draw(fb,    10,  18, 160);
-    widget_warnings_draw(fb, 272,  60, warning, true, 1);
     widget_gear_draw(fb,     270,   8, 2 /* D */);
-    widget_battery_draw(fb, 270,  86, -1);
+    widget_energy_draw(fb, 244, 48, soc, hv, lv, fresh);
     widget_laptime_draw(fb,  18, 171, 3, 85670, true);
     widget_best_lap_draw(fb, 18, 199, 1, 80770);
-}
-
-void draw_warning_detail(FrameBuffer &fb) {
-    fb.clear();
-    fb_text(fb, 18, 14, "WARNING", 5);
-    fb_text(fb, 18, 112, "MOTOR HOT", 5);
-}
-
-const uint8_t *status_glyph(char c) {
-    static const uint8_t glyph_b[7] = {0x1E,0x11,0x11,0x1E,0x11,0x11,0x1E};
-    static const uint8_t glyph_s[7] = {0x0F,0x10,0x10,0x0E,0x01,0x01,0x1E};
-    if (c == 'B') return glyph_b;
-    if (c == 'S') return glyph_s;
-    return font_glyph(c);
-}
-
-void status_text(FrameBuffer &fb, int x, int y, const char *text, int scale) {
-    if (scale < 1) scale = 1;
-    int cx = x;
-    for (const char *p = text; *p; ++p) {
-        const uint8_t *g = status_glyph(*p);
-        if (g) {
-            for (int r = 0; r < 7; ++r) {
-                for (int c = 0; c < 5; ++c) {
-                    if (g[r] & (0x10 >> c)) {
-                        fb_rect(fb, cx + c * scale, y + r * scale,
-                                scale, scale, true, true);
-                    }
-                }
-            }
-        }
-        cx += 6 * scale;
-    }
-}
-
-void status_line(FrameBuffer &fb, int &y, const char *text, int scale) {
-    status_text(fb, 8, y, text, scale);
-    y += scale * 8 + 1;
-}
-
-void draw_status_detail(FrameBuffer &fb) {
-    fb.clear();
-    fb_text(fb, 8, 4, "CAR CHECK", 3);
-    int y = 31;
-    status_line(fb, y, "CAN L OK R OK", 2);
-    status_line(fb, y, "VCU OK HV ON", 2);
-    status_line(fb, y, "BMS OK 078% 51V", 2);
-    status_text(fb, 210, 39, "GPS OK", 1);
-    status_text(fb, 202, 60, "LAT 37.12345", 1);
-    status_text(fb, 202, 73, "LON 127.12345", 1);
-    status_text(fb, 214, 101, "LAP 03", 2);
-    status_text(fb, 206, 123, "01:25.67", 2);
-    status_text(fb, 206, 146, "PDK ON", 1);
-    status_text(fb, 206, 159, "RTK FIXED", 1);
-    status_text(fb, 206, 172, "NTRIP OK", 1);
-    status_text(fb, 206, 185, "RTCM OK", 1);
-
-    y += 3;
-    status_line(fb, y, "LEFT FAULT", 2);
-    status_line(fb, y, "MTR 088C HOT", 2);
-    status_line(fb, y, "CTRL 074C HOT", 2);
-    status_line(fb, y, "VOLT 121.5 OVER", 2);
-
-    y += 3;
-    status_line(fb, y, "RIGHT OK", 2);
-    status_line(fb, y, "MTR 052C OK", 2);
-    status_line(fb, y, "CTRL 048C OK", 2);
-    status_line(fb, y, "VOLT 119.8 OK", 2);
+    check_home_nav(fb, warning);
 }
 
 void write_frame(const char *path, FrameBuffer &fb, int scale, bool warning_screen) {
@@ -166,11 +100,13 @@ void test_render_layout_writes_bmp(void) {
     draw_normal_layout(fb, true);
     write_frame("render_layout_warning.bmp", fb, SCALE, true);
 
-    draw_warning_detail(fb);
-    write_frame("render_warning_detail_motor_hot.bmp", fb, SCALE, true);
+    draw_normal_layout(fb, false, -1, 0, 0, false);
+    write_frame("render_energy_unknown.bmp", fb, SCALE, false);
 
-    draw_status_detail(fb);
-    write_frame("render_status_detail.bmp", fb, SCALE, false);
+    draw_normal_layout(fb, false, 100, -32768, -32768, true);
+    write_frame("render_energy_limits.bmp", fb, SCALE, false);
+
+    // Car Check/graph previews are rendered by test_diagnostics using production code.
 }
 
 void setUp(void) {}

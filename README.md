@@ -10,7 +10,13 @@
 
 - **스택**: PlatformIO + Arduino-ESP32, TWAI(CAN), ILI9341 LCD. 화면은 **패널 독립적 1bpp 프레임버퍼**(위젯이 그림) + `display_blit`(ILI9341로 blit)
 - **구조**: 잠긴 코어(CAN·프레임버퍼·blit) + 팀원이 채우는 순수 모듈(`src/modules/`). VCU와 **동일한 2층 설계**지만 안전 FSM·50ms 라이프 태스크가 없고 CAN은 **수신(RX) 위주**입니다.
-- **상태**: ESP32 빌드 그린, 호스트 테스트 57개 통과
+- **상태**: ESP32 빌드 성공, 호스트 native 테스트 111개 통과
+
+## 사용자 문서
+
+- [계기판 기능 및 한계](docs/ui_report/REPORT.md)
+- [계기판 사용설명서](docs/ui_report/USER_MANUAL.md)
+- [추가 CAN 정보 및 실차 확인 사항](docs/ui_report/CAN_DATA_REQUIRED.md)
 
 ## 빠른 시작
 

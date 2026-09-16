@@ -280,8 +280,8 @@ namespace {
             gps_lap_start_single_pending = false;
             if (gps_laptimer::timer_paused()) {
                 if (gps_laptimer::resume()) show_lap_notice("LAP RESUMED", now);
-            } else if (warning_active()) {
-                if (gps_laptimer::stop()) show_lap_notice("LAP STOPPED", now);
+            } else if (gps_laptimer::stop()) {
+                show_lap_notice("LAP STOPPED", now);
             } else if (gps_laptimer::start_at_current_fix()) {
                 show_lap_notice("LAP START SET", now);
             } else if (!gps_signal_fresh(now)) {

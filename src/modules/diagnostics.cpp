@@ -35,6 +35,7 @@ void CheckUi::tap(int x,int y,bool warning) {
     }
     if(page==CheckPage::Home) {
         if(x<270 && y<108) open_graph(GraphKind::Wss);
+        else if(x>=68 && x<272 && y>=140 && y<182) open_graph(GraphKind::EmA);
         else page=warning?CheckPage::Warning:CheckPage::Menu;
         return;
     }

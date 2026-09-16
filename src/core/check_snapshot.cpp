@@ -195,6 +195,8 @@ HomeData check_home_snapshot(uint32_t now) {
     d.speed=state.wss_kph;d.speed_ok=state.wss_valid&&fresh(state.vehicle_speed_last_rx_ms,now,300);
     d.throttle=state.throttle_pct;d.throttle_ok=state.throttle_valid&&fresh(state.throttle_last_rx_ms,now,300);
     d.gear=state.gear;d.gear_ok=state.gear_from_can&&fresh(state.vcu_cluster_status_last_ms,now,300);
+    d.brake_valid=fresh(state.vcu_cluster_status_last_ms,now,300);
+    d.brake_active=d.brake_valid&&state.brake;
     if(state.soc_valid&&state.bms_ble_connected&&fresh(state.bms_last_rx_ms,now,5000)) d.soc=std::lround(state.soc*100);
     d.em_ok=state.em_record_seen&&now-state.em_record_last_ms<=500;
     d.hv=state.em_hv_decivolts/10.0f;d.lv=state.em_lv_centivolts/100.0f;

@@ -23,6 +23,7 @@ float hdop(){return .7f;}
 const char *rtk_status_label(){return "RTK FIXED";}
 uint32_t last_gga_ms(){return mock_gga;}
 uint8_t fix_quality(){return mock_quality;}
+uint8_t current_lap_number(){return 1;}
 }
 // Production adapter, with host substitutes only for the hardware getters.
 #include "../../src/core/check_snapshot.cpp"
@@ -225,9 +226,25 @@ void test_em_power_and_soc_sources(){
     d=check_home_snapshot(600000);TEST_ASSERT_EQUAL(70,d.soc);
     d=check_home_snapshot(600501);TEST_ASSERT_FALSE(d.em_ok);
 }
+void test_home_brake_status(){
+    state.vcu_cluster_status_last_ms=600000;state.brake=true;
+    HomeData d=check_home_snapshot(600000);
+    TEST_ASSERT_TRUE(d.brake_valid);TEST_ASSERT_TRUE(d.brake_active);
+    FrameBuffer f;f.clear();check_home_draw(f,d,false);
+    bool active_ink=false;for(int x=262;x<280;++x)for(int y=44;y<51;++y)active_ink|=f.get(x,y);
+    TEST_ASSERT_TRUE(active_ink);
+    d=check_home_snapshot(600301);
+    TEST_ASSERT_FALSE(d.brake_valid);TEST_ASSERT_FALSE(d.brake_active);
+    f.clear();check_home_draw(f,d,false);
+    bool stale_ink=false;for(int x=262;x<280;++x)for(int y=44;y<51;++y)stale_ink|=f.get(x,y);
+    TEST_ASSERT_FALSE(stale_ink);
+}
 void test_home_hit_areas(){
     CheckUi u;u.tap(269,107,false);TEST_ASSERT_TRUE(u.page==CheckPage::Graph);
     u.tap(270,16,false);u.tap(270,107,false);TEST_ASSERT_TRUE(u.page==CheckPage::Menu);
+    u.home();u.tap(100,170,false);TEST_ASSERT_TRUE(u.page==CheckPage::Graph);
+    TEST_ASSERT_TRUE(u.graph==GraphKind::EmA);TEST_ASSERT_TRUE(u.graph_origin==CheckPage::Home);
+    u.tap(270,16,false);TEST_ASSERT_TRUE(u.page==CheckPage::Home);
     u.home();u.tap(20,120,true);TEST_ASSERT_TRUE(u.page==CheckPage::Warning);
 }
 void test_detail_rows_have_no_separators(){
@@ -241,9 +258,9 @@ void test_detail_rows_have_no_separators(){
 void test_home_power_bar_direction(){
     FrameBuffer f;HomeData d;d.em_ok=true;d.power_kw=5.0f;
     d.charging=true;f.clear();check_home_draw(f,d,false);
-    TEST_ASSERT_TRUE(f.get(130,170));TEST_ASSERT_FALSE(f.get(214,170));TEST_ASSERT_TRUE(f.get(172,166));
+    TEST_ASSERT_TRUE(f.get(130,152));TEST_ASSERT_FALSE(f.get(218,152));TEST_ASSERT_TRUE(f.get(170,147));
     d.charging=false;f.clear();check_home_draw(f,d,false);
-    TEST_ASSERT_FALSE(f.get(130,170));TEST_ASSERT_TRUE(f.get(214,170));TEST_ASSERT_TRUE(f.get(172,166));
+    TEST_ASSERT_FALSE(f.get(130,152));TEST_ASSERT_TRUE(f.get(218,152));TEST_ASSERT_TRUE(f.get(170,147));
 }
 void write_image(const char *name,const FrameBuffer &f,bool red=false){
     std::filesystem::create_directories(".tmp");char path[128];std::snprintf(path,sizeof(path),".tmp/ui_%s.ppm",name);
@@ -262,7 +279,7 @@ void fixture(){
     state.bms_remaining_mah=23000;state.bms_soh=98;state.bms_cycles=42;
     state.em_record_seen=true;state.em_record_last_ms=599990;state.em_hv_decivolts=537;
     state.em_lv_centivolts=1342;state.em_current_deciamps=482;state.em_cpu_centidegrees=3150;
-    state.gear=2;state.gear_from_can=true;state.hv_active=true;state.vcu_cluster_status_last_ms=599950;
+    state.gear=2;state.gear_from_can=true;state.brake=true;state.hv_active=true;state.vcu_cluster_status_last_ms=599950;
     state.throttle_pct=32;state.throttle_valid=true;state.throttle_last_rx_ms=599950;
     state.tc_enabled=true;state.regen_level=1;state.paddock=true;state.paddock_active=true;
     state.wss_kph=32;state.wss_valid=true;state.vehicle_speed_last_rx_ms=599950;
@@ -301,6 +318,7 @@ void test_render_production_screens(){
     const GraphKind kinds[]={GraphKind::Wss,GraphKind::Bus,GraphKind::Phase,GraphKind::MotorV,GraphKind::EmHv,GraphKind::EmLv,GraphKind::BmsV,GraphKind::EmA,GraphKind::Throttle,GraphKind::Rtk};
     const char *gnames[]={"graph_wss","graph_bus","graph_phase","graph_motor_v","graph_hv","graph_lv","graph_bms_v","graph_em_a","graph_throttle","graph_rtk"};
     for(int i=0;i<10;++i){u.page=CheckPage::Power;u.open_graph(kinds[i]);f.clear();check_draw(f,u,d,h,v,600000);write_image(gnames[i],f);}
+    u.home();u.open_graph(GraphKind::EmA);f.clear();check_draw(f,u,d,h,v,600000);write_image("graph_power",f);
     d.warnings[0]="L MOTOR HOT";d.warnings[1]="R CAN TIMEOUT";d.warning_count=2;
     u.page=CheckPage::Warning;f.clear();check_draw(f,u,d,h,v,600000);write_image("warning",f,true);
     state=ClusterState{};check_snapshot(d,600000);u.page=CheckPage::Motor;f.clear();check_draw(f,u,d,h,v,600000);write_image("motor_wait",f,true);
@@ -320,6 +338,6 @@ int main(int,char**){
     RUN_TEST(test_disconnected_not_zero_ok);RUN_TEST(test_independent_motor_frames);RUN_TEST(test_wss_never_rpm_fallback);
     RUN_TEST(test_requests_distinct_and_no_pressure);RUN_TEST(test_sensor_quality_not_numeric_legacy);
     RUN_TEST(test_observer_fix_and_rtcm_independent);RUN_TEST(test_graph_voltage_scaling_and_back_button);
-    RUN_TEST(test_em_power_and_soc_sources);RUN_TEST(test_home_hit_areas);RUN_TEST(test_detail_rows_have_no_separators);RUN_TEST(test_home_power_bar_direction);RUN_TEST(test_render_production_screens);
+    RUN_TEST(test_em_power_and_soc_sources);RUN_TEST(test_home_brake_status);RUN_TEST(test_home_hit_areas);RUN_TEST(test_detail_rows_have_no_separators);RUN_TEST(test_home_power_bar_direction);RUN_TEST(test_render_production_screens);
     return UNITY_END();
 }

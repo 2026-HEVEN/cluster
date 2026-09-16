@@ -53,6 +53,62 @@ void diagnostic_graph(FrameBuffer &f,CheckUi &ui,const DiagnosticHistory &h,cons
         char b[52]; std::snprintf(b,sizeof(b),"LIVE 60s / RTK overwritten %lu",static_cast<unsigned long>(h.rtk_overwrites()));
         fb_text(f,8,227,b,1);return;
     }
+    const bool home_power=ui.graph==GraphKind::EmA && ui.graph_origin==CheckPage::Home;
+    if(home_power) {
+        header(f,"POWER kW");
+        const unsigned hv_index=static_cast<unsigned>(Channel::EmHv);
+        const unsigned current_index=static_cast<unsigned>(Channel::EmA);
+        const uint16_t mask=(1u<<hv_index)|(1u<<current_index);
+        float hi=1.0f;
+        bool found=false;
+        for(size_t i=0;i<h.size();++i) {
+            const auto &p=h.at(i);
+            if(now-p.ms>60000 || (p.valid&mask)!=mask) continue;
+            hi=std::max(hi,std::fabs(p.value[hv_index]*p.value[current_index])/1000.0f);
+            found=true;
+        }
+        const float step=std::pow(10.0f,std::floor(std::log10(std::max(1.0f,hi))))/2.0f;
+        const float upper=std::max(step,std::ceil(hi/step)*step);
+        ui.graph_min=0.0f;
+        ui.graph_max=ui.graph_range_set?std::max(ui.graph_max,upper):upper;
+        if(found) ui.graph_range_set=true;
+        auto py=[&](float n){return 188-static_cast<int>(n*120/ui.graph_max);};
+        for(int i=0;i<3;++i) {
+            char b[20];std::snprintf(b,sizeof(b),"%.1f",ui.graph_max*i/2.0f);
+            fb_text(f,0,184-i*60,b,1);
+        }
+        bool any=false,prev=false,prev_charging=false;
+        int px=0,prev_y=0;uint32_t stamp=0;
+        for(size_t i=0;i<h.size();++i) {
+            const auto &p=h.at(i);
+            if(now-p.ms>60000) continue;
+            if((p.valid&mask)!=mask) {prev=false;continue;}
+            const float current=p.value[current_index];
+            const float kw=std::fabs(p.value[hv_index]*current)/1000.0f;
+            const bool charging=current<0.0f;
+            const int x=46+static_cast<int>((60000-(now-p.ms))*263ULL/60000);
+            const int y=py(kw);
+            if(prev && !(p.broken&mask) && p.ms-stamp<=750 && charging==prev_charging) {
+                line(f,px,prev_y,x,y,charging);
+            } else {
+                f.pixel(x,y,true);
+            }
+            any=true;prev=true;prev_charging=charging;px=x;prev_y=y;stamp=p.ms;
+        }
+        char legend[52];
+        if(v.has(Channel::EmHv)&&v.has(Channel::EmA)) {
+            const float current=v.get(Channel::EmA);
+            const float kw=std::fabs(v.get(Channel::EmHv)*current)/1000.0f;
+            std::snprintf(legend,sizeof(legend),"%s %.2f kW   CHG ...  PWR ___",
+                current<0.0f?"CHG":"PWR",kw);
+        } else {
+            std::snprintf(legend,sizeof(legend),"NOW --   CHG ...  PWR ___");
+        }
+        fb_text(f,8,48,legend,1);
+        if(!any) fb_text(f,72,122,"NO VALID HISTORY",2);
+        fb_text(f,8,227,"LIVE / ABS / 60s / 2Hz",1);
+        return;
+    }
     const auto s=spec(ui.graph);header(f,s.name);
     const bool voltage=ui.graph==GraphKind::MotorV || ui.graph==GraphKind::EmHv ||
         ui.graph==GraphKind::EmLv || ui.graph==GraphKind::BmsV;

@@ -4,27 +4,22 @@
 //  Application work happens only in src/modules/.
 // ============================================================
 #include "core/display_blit.h"
+#include "core/board_pins.h"
 #include <Arduino.h>
 #include <SPI.h>
 #include <Adafruit_GFX.h>
 #include <Adafruit_ILI9341.h>
 
 namespace {
-constexpr int PIN_TFT_CS   = 4;
-constexpr int PIN_TFT_DC   = 5;
-constexpr int PIN_TFT_RST  = 16;
-constexpr int PIN_TFT_SCLK = 21;
-constexpr int PIN_TFT_MOSI = 19;
-constexpr int PIN_TFT_MISO = 22;   // Shared SPI MISO for touch controller readback.
-
 constexpr bool PANEL_INVERTED = true; // Devicemart 3.2-inch THL/CD01 ILI9341 panel colors.
-Adafruit_ILI9341 tft(PIN_TFT_CS, PIN_TFT_DC, PIN_TFT_RST);
+Adafruit_ILI9341 tft(board_pins::LCD_CS, board_pins::LCD_DC, board_pins::LCD_RST);
 }
 
 namespace display_blit {
 
 void begin() {
-    SPI.begin(PIN_TFT_SCLK, PIN_TFT_MISO, PIN_TFT_MOSI, PIN_TFT_CS);
+    SPI.begin(board_pins::SPI_SCK, board_pins::SPI_MISO,
+              board_pins::SPI_MOSI, board_pins::LCD_CS);
     tft.begin();
     tft.setRotation(1);       // landscape: 320x240
     tft.invertDisplay(PANEL_INVERTED);

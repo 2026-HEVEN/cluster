@@ -10,6 +10,7 @@
 #include "core/bms_ble.h"
 #include "core/gps_laptimer.h"
 #include "core/ntrip.h"
+#include "core/board_pins.h"
 #include "framebuffer.h"
 #include "modules/hmi_input.h"
 #include "modules/widgets/widget_speed.h"
@@ -30,16 +31,7 @@ static DiagnosticHistory diagnostic_history;
 static TelemetryValues diagnostic_values;
 
 namespace {
-    // Input pins (direct GPIO; if pin count runs short, an io_expander can be
-    // reintroduced HERE only, without touching any module).
-    constexpr int PIN_PADDOCK = 36; // SVP/GPIO36; external 10k pull-up required on PCB
-    constexpr int PIN_TC = 25;
-    constexpr int PIN_REGEN_BIT0 = 27; // regen rotary bit 0; ON=LOW
-    constexpr int PIN_REGEN_BIT1 = 34; // regen bit 1; external 10k pull-up to 3.3V
-    constexpr int PIN_PAGE_BUTTON = 13; // WARNING_DETAIL momentary button; ON=LOW
-    constexpr int PIN_VESS_PWM = 26;
-    constexpr int PIN_GPS_LAP_START = 32;     // set GPS lap start
-    constexpr int PIN_TOUCH_CS = 23;        // XPT2046 touch chip select; touch toggles vehicle status
+    // Physical GPIO assignments live in core/board_pins.h (PCB V3).
     constexpr uint8_t VESS_PWM_CHANNEL = 0;
     constexpr uint32_t VESS_PWM_FREQUENCY_HZ = 50;
     constexpr uint8_t VESS_PWM_RESOLUTION_BITS = 16;
@@ -70,7 +62,7 @@ namespace {
     uint32_t page_button_changed_ms = 0;
     uint32_t status_touch_last_ms = 0;
     constexpr uint32_t GPS_LAP_DOUBLE_CLICK_MS = 320;
-    XPT2046_Touchscreen touch(PIN_TOUCH_CS);
+    XPT2046_Touchscreen touch(board_pins::TOUCH_CS);
     bool gps_lap_start_button_down = false;
     uint32_t gps_lap_start_button_last_ms = 0;
     bool gps_lap_start_single_pending = false;
@@ -222,7 +214,7 @@ namespace {
 
     void page_button_update() {
         const uint32_t now = millis();
-        const bool down = digitalRead(PIN_PAGE_BUTTON) == LOW;
+        const bool down = digitalRead(board_pins::HOME_BUTTON) == LOW;
         if (down != page_button_raw_down) {
             page_button_raw_down = down;
             page_button_changed_ms = now;
@@ -257,7 +249,7 @@ namespace {
         }
     }
     void gps_lap_start_update() {
-        const bool down = digitalRead(PIN_GPS_LAP_START) == LOW;
+        const bool down = digitalRead(board_pins::LAP_BUTTON) == LOW;
         const uint32_t now = millis();
         if (down != gps_lap_start_button_down && now - gps_lap_start_button_last_ms >= 50) {
             gps_lap_start_button_down = down;
@@ -358,11 +350,11 @@ static void hmi_update() {
     status_touch_update();
 
     HmiSwitches sw;
-    sw.paddock       = digitalRead(PIN_PADDOCK) == LOW;
-    sw.tc_enabled    = digitalRead(PIN_TC) == LOW;
-    sw.regen_bit0 = digitalRead(PIN_REGEN_BIT0) == LOW;
-    sw.regen_bit1 = digitalRead(PIN_REGEN_BIT1) == LOW;
-    sw.debug_enabled = false; // GPIO26 is now the local VESS PWM output.
+    sw.paddock       = digitalRead(board_pins::PADDOCK_SWITCH) == LOW;
+    sw.tc_enabled    = digitalRead(board_pins::TV_SWITCH) == LOW;
+    sw.regen_bit0 = digitalRead(board_pins::REGEN_BIT0) == LOW;
+    sw.regen_bit1 = digitalRead(board_pins::REGEN_BIT1) == LOW;
+    sw.debug_enabled = false; // PCB V3 has no Debug switch input.
     ClusterCommand cmd = hmi_compute(sw);
     if (!state.gear_from_can) {
         state.gear = 0;
@@ -469,22 +461,25 @@ const int G_TASK_COUNT = sizeof(g_tasks) / sizeof(g_tasks[0]);
 void modules_init() {
     Serial.printf("[DIAGNOSTICS] history %u bytes, 2Hz/60s, volatile events\n",
                   static_cast<unsigned>(sizeof(diagnostic_history)));
-    pinMode(PIN_TOUCH_CS, OUTPUT);
-    digitalWrite(PIN_TOUCH_CS, HIGH);
+    pinMode(board_pins::TOUCH_CS, OUTPUT);
+    digitalWrite(board_pins::TOUCH_CS, HIGH);
     display_blit::begin();
     display_update();
     touch.begin();
     touch.setRotation(1);
     ledcSetup(VESS_PWM_CHANNEL, VESS_PWM_FREQUENCY_HZ, VESS_PWM_RESOLUTION_BITS);
-    ledcAttachPin(PIN_VESS_PWM, VESS_PWM_CHANNEL);
+    ledcAttachPin(board_pins::VESS_PWM, VESS_PWM_CHANNEL);
     vess_write_pulse(1500);
 
-    pinMode(PIN_PADDOCK, INPUT); // GPIO36 has no internal pull-up; PCB provides external 10k
-    pinMode(PIN_TC, INPUT_PULLUP);
-    pinMode(PIN_REGEN_BIT0, INPUT_PULLUP);
-    pinMode(PIN_REGEN_BIT1, INPUT); // external 10k pull-up required
-    pinMode(PIN_PAGE_BUTTON, INPUT_PULLUP);
-    pinMode(PIN_GPS_LAP_START, INPUT_PULLUP);
+    pinMode(board_pins::PADDOCK_SWITCH, INPUT_PULLUP);
+    pinMode(board_pins::TV_SWITCH, INPUT_PULLUP);
+    // GPIO36/39 are input-only and have no internal pull-up. PCB V3 supplies
+    // external pull-ups for both active-low rotary bits.
+    pinMode(board_pins::REGEN_BIT0, INPUT);
+    pinMode(board_pins::REGEN_BIT1, INPUT);
+    pinMode(board_pins::HOME_BUTTON, INPUT_PULLUP);
+    pinMode(board_pins::LAP_BUTTON, INPUT_PULLUP);
+    pinMode(board_pins::START_SENSE_ADC, INPUT);
     can_bus::begin();
     gps_laptimer::begin();
     bms_ble::begin();

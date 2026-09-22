@@ -43,7 +43,7 @@
 - Warning이 없으면 Car Check 메뉴로 이동한다.
 - Warning이 있으면 Warning 원인 화면으로 이동한다.
 - 세부 화면 오른쪽 위 `BACK`을 누르면 이전 화면으로 돌아간다.
-- PCB의 GPIO13 순간버튼을 누르면 어느 화면에서나 기본 화면으로 돌아간다. LCD 터치가 불편할 때 사용하는 HOME 버튼이다.
+- PCB V3의 GPIO19 순간버튼을 누르면 어느 화면에서나 기본 화면으로 돌아간다. LCD 터치가 불편할 때 사용하는 HOME 버튼이다.
 
 ## 3. Car Check 사용법
 
@@ -97,7 +97,7 @@ Warning 화면에서 원인을 확인할 수 있다. Warning 중에도 GPS LAP �
 
 ## 6. GPS LAP 버튼
 
-GPS LAP 버튼은 GPIO32에 연결된 순간버튼이다.
+GPS LAP 버튼은 PCB V3 GPIO5에 연결된 순간버튼이다.
 
 | 조작 | 결과 |
 | --- | --- |
@@ -117,9 +117,9 @@ Start/Finish 중심점에서 차량이 출발하면 최근 GPS 이동 방향을 
 | Paddock | VCU에 Paddock 제한모드 요청 전송 |
 | TC | 토크벡터링 ON/OFF 요청 전송 |
 | Regen 로터리 | 0=OFF, 1·2·3=동일 ON 요청 |
-| GPIO13 순간버튼 | 계기판 기본 화면으로 복귀 |
+| GPIO19 순간버튼 | 계기판 기본 화면으로 복귀 |
 | GPS LAP 순간버튼 | 랩 시작·정지·재개·초기화 |
-| GPIO26 | VESS PWM 출력. 버튼 입력이 아님 |
+| GPIO4 | VESS PWM 출력. 버튼 입력이 아님 |
 
 스위치의 요청 상태와 VCU가 실제로 적용한 상태는 다를 수 있다. Car Check의 CONTROL 화면에서 요청 수신, 실제 Active, 차단 이유를 함께 확인한다.
 

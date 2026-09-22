@@ -10,11 +10,15 @@
 #include "state.h"
 #include "core/gps_laptimer.h"
 #include "core/ntrip.h"
+#include "core/board_pins.h"
 
 namespace can_bus {
 
 void begin() {
-    twai_general_config_t g = TWAI_GENERAL_CONFIG_DEFAULT(GPIO_NUM_18, GPIO_NUM_17, TWAI_MODE_NORMAL);
+    twai_general_config_t g = TWAI_GENERAL_CONFIG_DEFAULT(
+        static_cast<gpio_num_t>(board_pins::CAN_TX),
+        static_cast<gpio_num_t>(board_pins::CAN_RX),
+        TWAI_MODE_NORMAL);
     // Absorb telemetry bursts while the shared task renders/transfers an LCD frame.
     g.rx_queue_len = 64;
     twai_timing_config_t  t = TWAI_TIMING_CONFIG_250KBITS();

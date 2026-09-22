@@ -165,16 +165,16 @@
 | 바이트 | 항목 | 의미 |
 |--------|------|------|
 | 0 | Reserved | 0 |
-| 1 | Config flags | bit0: TC-labelled TV enable, bit1: Regen Auto enable(`Cluster RGN 1~3`이면 1, `RGN 0`이면 0), bit2: reserved(0), bit3: Debug legacy request(현재 Cluster GPIO26에서는 사용하지 않아 0), bit7-4: reserved(0) |
+| 1 | Config flags | bit0: TV enable, bit1: Regen Auto enable(`Cluster RGN 1~3`이면 1, `RGN 0`이면 0), bit2: reserved(0), bit3: Debug legacy request(PCB V3에는 스위치가 없어 0), bit7-4: reserved(0) |
 | 2 | Flags | bit0: Paddock request, bit7-1: reserved(0) |
 | 3~7 | 예약 | 0 |
 
 > ⚠️ 패독은 **요청 신호**일 뿐. VCU가 토크/속도를 상한 이하로 클램프하고 CAN 끊김 시 fail-safe(제한 유지)를 결정해야 함.
 > ⚠️ 회생제동 토글도 **요청 신호**다. bit1=1이면 VCU 자동 회생제동 허용, bit1=0이면 회생제동 OFF 요청으로 해석한다. 실제 회생 전류와 차단 여부는 VCU가 배터리 전압/SOC/BMS fault/속도 조건을 기준으로 최종 제한해야 한다.
-> 회생제동은 로터리 스위치 GPIO27(bit0), GPIO34(bit1)의 active-low 입력으로 결정한다. GPIO27은 내부 풀업, GPIO34는 3.3V에 외부 10k 풀업을 사용한다. 0단은 OFF, 1~3단은 ON이며 부팅 시에도 실제 스위치 위치를 따른다. RGN은 Car Check에서 ON/OFF 요청 상태로 표시하며 기본 화면에서는 표시하지 않는다.
-> 배선팀 인계(2026-09-07 확정): GPIO13으로 로터리를 옮기는 제안은 철회한다. 로터리 공통 접점은 GND, bit0은 GPIO27, bit1은 GPIO34에 연결한다. GPIO13 WARNING_DETAIL 순간버튼은 GPIO13과 GND 사이에 연결하며 내부 풀업을 사용한다. 버튼을 누를 때마다 기본 화면 → Car Check → Warning 상세 → 기본 화면으로 순환한다(50ms 디바운스, 길게 눌러도 반복 전환 없음). GPIO26 VESS PWM 출력과 GPIO25 TC 스위치 배선은 유지한다. Paddock GPIO36의 외부 풀업도 별도로 유지한다.
-> VCU/토크벡터링팀 인계: TC 스위치의 기능은 토크벡터링 ON/OFF 요청이다. 기존 0x1801D0C0 Byte1 bit0을 그대로 사용하며 VCU에서 실제 적용 여부를 확인해야 한다. 회생제동 요청은 동일 프레임 Byte1 bit1로 0단=0, 1~3단=1을 송신한다(강도 3단계 구분 없음). GPIO13 페이지 전환은 Cluster 내부 기능으로 CAN 요청을 보내지 않는다.
-> VESS는 CAN 커맨드에 싣지 않는다. Cluster GPIO26이 ESS-DUAL+ RX-TH로 50Hz servo PWM을 직접 출력한다. 현재 구현은 VCU throttle feedback을 우선 사용하고, 없으면 모터 target current/차량속도 순서로 fallback한다.
+> 회생제동은 PCB V3 로터리 스위치 GPIO36(bit0), GPIO39(bit1)의 active-low 입력으로 결정한다. 두 핀 모두 입력 전용이므로 외부 풀업을 사용한다. 0단은 OFF, 1~3단은 ON이며 부팅 시에도 실제 스위치 위치를 따른다. RGN은 Car Check에서 ON/OFF 요청 상태로 표시하며 기본 화면에서는 표시하지 않는다.
+> PCB V3 배선: TV GPIO32, Paddock GPIO33, HOME GPIO19, GPS LAP GPIO5, VESS PWM GPIO4이다. HOME은 Cluster 내부 기능으로 CAN 요청을 보내지 않는다.
+> VCU/토크벡터링팀 인계: TV 스위치 요청은 기존 0x1801D0C0 Byte1 bit0을 그대로 사용하며 VCU에서 실제 적용 여부를 확인해야 한다. 회생제동 요청은 동일 프레임 Byte1 bit1로 0단=0, 1~3단=1을 송신한다(강도 3단계 구분 없음).
+> VESS는 CAN 커맨드에 싣지 않는다. Cluster GPIO4가 ESS-DUAL+ RX-TH로 50Hz servo PWM을 직접 출력한다. 현재 구현은 VCU throttle feedback을 우선 사용하고, 없으면 모터 target current/차량속도 순서로 fallback한다.
 
 ### EM Gateway 전압 표시 (2026-09-07)
 

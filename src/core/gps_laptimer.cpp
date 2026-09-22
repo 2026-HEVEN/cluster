@@ -6,12 +6,10 @@
 #include <stdlib.h>
 #include <string.h>
 #include "state.h"
+#include "core/board_pins.h"
 
 namespace gps_laptimer {
 namespace {
-constexpr int PIN_GPS_RX = 35;      // GPS TX2 -> ESP32 GPIO35
-constexpr int PIN_GPS_TX = 14;      // ESP32 GPIO14 -> GPS RX2 for RTCM3 corrections
-constexpr int PIN_GNSS_PPS = 33;    // ZED-F9P PPS -> ESP32 GPIO33
 constexpr uint32_t GPS_BAUD = 115200;
 constexpr uint32_t GPS_RECOVERY_BAUD = 460800;
 constexpr uint32_t GPS_BAUD_RETRY_MS = 5000;
@@ -140,7 +138,7 @@ void force_gps_baud_115200(bool persist, uint32_t startup_wait_ms) {
     const uint8_t layers = persist ? GPS_BAUD_PERSIST_LAYERS : GPS_BAUD_RUNTIME_LAYERS;
 
     gps_serial.end();
-    gps_serial.begin(GPS_RECOVERY_BAUD, SERIAL_8N1, PIN_GPS_RX, PIN_GPS_TX);
+    gps_serial.begin(GPS_RECOVERY_BAUD, SERIAL_8N1, board_pins::GNSS_RX, board_pins::GNSS_TX);
     if (startup_wait_ms > 0) delay(startup_wait_ms);
 
     // Try both known rates. If the receiver is already running at 115200 from
@@ -150,7 +148,7 @@ void force_gps_baud_115200(bool persist, uint32_t startup_wait_ms) {
     delay(100);
     gps_serial.end();
     line_len = 0;
-    gps_serial.begin(GPS_BAUD, SERIAL_8N1, PIN_GPS_RX, PIN_GPS_TX);
+    gps_serial.begin(GPS_BAUD, SERIAL_8N1, board_pins::GNSS_RX, board_pins::GNSS_TX);
     send_ubx_all_uart_baud(GPS_BAUD, layers);
     last_baud_force_ms = millis();
 
@@ -494,17 +492,17 @@ void consume_char(char c) {
 }
 
 void begin() {
-    pinMode(PIN_GNSS_PPS, INPUT);
-    attachInterrupt(digitalPinToInterrupt(PIN_GNSS_PPS), pps_isr, RISING);
+    pinMode(board_pins::GNSS_PPS, INPUT);
+    attachInterrupt(digitalPinToInterrupt(board_pins::GNSS_PPS), pps_isr, RISING);
     force_gps_baud_115200(true, GPS_STARTUP_WAIT_MS);
     Serial.print("[GPS] UART2 RX GPIO");
-    Serial.print(PIN_GPS_RX);
+    Serial.print(board_pins::GNSS_RX);
     Serial.print(" TX GPIO");
-    Serial.print(PIN_GPS_TX);
+    Serial.print(board_pins::GNSS_TX);
     Serial.print(" baud ");
     Serial.println(GPS_BAUD);
     Serial.print("[GPS] PPS GPIO");
-    Serial.println(PIN_GNSS_PPS);
+    Serial.println(board_pins::GNSS_PPS);
 }
 
 void poll() {

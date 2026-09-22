@@ -9,7 +9,7 @@ Updated: 2026-09-09. PM feedback is implemented locally after user approval. VCU
 - Car Check has four touch targets: top-left Motor, top-right Power, bottom-left VCU/Sensors, bottom-right GPS/RTK.
 - Each target opens decoded measurements with units and diagnostic states, not hexadecimal CAN payload dumps.
 - Detail back navigation returns to Car Check.
-- GPIO13 momentary button is now HOME: pressing it from any page returns to the main page. Each non-home page also has a rectangular BACK touch target.
+- PCB V3 GPIO19 momentary button is HOME: pressing it from any page returns to the main page. Each non-home page also has a rectangular BACK touch target.
 - Touching home WSS or throttle opens a continuously updated graph. Detail rows marked `*` also open graphs. Latest decision replaces the older 10-minute WSS buffer with 12 numeric channels at 2Hz for 60 seconds, fixed RAM, plus bounded RTK transitions and 32 boot-session events. There is no older-than-60-second scrollback in this version. Live display scheduling targets 20Hz.
 - Display live zero as zero, missing values as --, and expired values as stale. Distinguish Cluster requests from VCU-confirmed applied states.
 - Unspecified signals must not be invented or shown as measured zero. Integrate them after the user supplies the VCU team's confirmed CAN specification.
@@ -23,7 +23,7 @@ The earlier new-sender backlog is superseded by the pinned VCU review below. Cur
 | Four individual wheel speeds | 0x1806C0D0 is integrated, FL/FR/RL/RR, unsigned LE x0.1, 0xFFFF invalid. Confirm wheel calibration and physical sensor validity criteria. |
 | Steering | 0x1804C0D0 is integrated, normalized x0.001, not degrees. Confirm deployed validity metadata and steering direction. |
 | IMU | 0x1805C0D0 is integrated, yaw deg/s and accel X/Y g, x0.01. Confirm sensor mounting/vehicle-axis sign. |
-| TV applied state | GPIO25 request remains 0x1801D0C0 Byte1 bit0. 0x1807C0D0 v1 echoes requests and reports active/block status. Verify deployed VCU version. |
+| TV applied state | GPIO32 request remains 0x1801D0C0 Byte1 bit0. 0x1807C0D0 v1 echoes requests and reports active/block status. Verify deployed VCU version. |
 | Regen applied state | Rotary 0=OFF, 1/2/3=the same ON; 0x1801D0C0 Byte1 bit1 is boolean enable. 0x1807C0D0 v1 reports permission/active/block status, not measured charging power. |
 | Signal contract | For each signal supply ID, Extended/Standard, DLC, byte/bit positions, signedness, endian, scale/offset, unit, period, validity/sentinel, counter and timeout guidance. Intended consumers include both Cluster and TMA-1. |
 
@@ -37,13 +37,15 @@ Implemented: controller phase current, EM HV current/CPU temperature, four wheel
 
 | Function | GPIO / connection | Note |
 | --- | --- | --- |
-| TV ON/OFF switch | GPIO25 to GND | Internal pull-up; change PCB TC label to TV. |
-| Regen rotary bit0 | GPIO27 | Internal pull-up, active-low. |
-| Regen rotary bit1 | GPIO34 | External 10k pull-up to 3.3V, active-low. Proposal to move to GPIO13 was withdrawn. |
+| TV ON/OFF switch | GPIO32 to GND | Internal pull-up, active-low. |
+| Regen rotary bit0 | GPIO36 | External pull-up, active-low. |
+| Regen rotary bit1 | GPIO39 | External pull-up, active-low. |
 | Rotary common | GND | 0=OFF; 1/2/3 identical ON, not three strengths. |
-| HOME momentary button | GPIO13 to GND | Internal pull-up. Label HOME for latest UI decision; old PCB label WARNING_DETAIL. |
-| VESS PWM output | GPIO26 | Former DEBUG input; remain an output to VESS. |
-| Paddock | GPIO36 | Keep its separate external pull-up. |
+| HOME momentary button | GPIO19 to GND | Internal pull-up, active-low. |
+| GPS LAP momentary button | GPIO5 to GND | Internal pull-up, active-low. |
+| VESS PWM output | GPIO4 | Output to VESS. |
+| Paddock | GPIO33 | Internal pull-up, active-low. |
+| START_IN sense | GPIO34 | ADC input; not a button output. |
 
 The UI redesign itself needs no extra analog wiring. EM voltage data arrives over the existing 250kbps CAN bus.
 
@@ -52,10 +54,10 @@ The UI redesign itself needs no extra analog wiring. EM voltage data arrives ove
 Read-only GitHub review of VCU dev commit `8498e2f20cfa79f8c71416a25a2676677b59a270`
 (2026-09-08, combined test-week changes). No firmware or decoder JSON was changed in this review.
 
-- Brake pressure is still absent: `src/core/board_pins.h` reserves GPIO26 as
-  `BRAKE_PRESSURE_ADC_RESERVED`, while `brake_update()` reads GPIO33 digitally only
-  if `BRAKE_SENSOR_INSTALLED` is true. That flag is currently false. `brake_compute()`
-  maps its input 0/4095 to 0/100 percent; this is not a calibrated pressure measurement.
+- Brake pressure telemetry is still absent. PCB V3 assigns VCU GPIO39 to pressure
+  and GPIO35 to divided brake ON/OFF, but current VCU control reads only GPIO35 when
+  `BRAKE_SENSOR_INSTALLED` is true. That flag is currently false. `brake_compute()`
+  maps its input to 0/100 percent; this is not a calibrated pressure measurement.
   Ask VCU for installed sensor identification, ADC acquisition, calibrated bar/MPa,
   invalid/fault handling and a published CAN contract, not merely a pressure decoder.
 - IMPORTANT update to the earlier backlog: VCU now sends steering 0x1804C0D0,

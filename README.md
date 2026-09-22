@@ -1,6 +1,6 @@
 # HEVEN Cluster 펌웨어
 
-**2026 영광 대회 · 계기 클러스터(Instrument Cluster)** — ESP32가 CAN/BLE로 차량 상태(속도·전압·SOC·온도·에러)를 **받아서** LCD에 표현하고, 계기판 버튼 입력을 VCU로 보냅니다. VESS 신호 경로와 스위칭은 클러스터 ESP32 GPIO 입력에서 분리합니다. VCU와 달리 **안전 임계가 약한 표시 전용 보드**입니다.
+**2026 영광 대회 · 계기 클러스터(Instrument Cluster)** — ESP32가 CAN/BLE로 차량 상태(속도·전압·SOC·온도·에러)를 **받아서** LCD에 표현하고, 계기판 버튼 입력을 VCU로 보냅니다. PCB V3에서는 VESS PWM도 Cluster가 직접 출력합니다. VCU와 달리 **안전 임계가 약한 표시 전용 보드**입니다.
 
 > 🤖 **AI 에이전트/팀원은 [`AGENTS.md`](AGENTS.md)를 먼저 읽으세요** — 무엇을 고쳐도 되고 무엇을 건드리면 안 되는지 규칙이 있습니다.
 
@@ -42,41 +42,35 @@ pio run -e esp32dev -t upload
 > ℹ️ GPS Lap Start는 현재 GNSS fix 위치를 출발점으로 저장합니다. 이후 VCU 단일 차량속도 `0.5 km/h` 초과가 `150ms` 이상 지속되면 랩타이머를 시작하고, 다시 출발점 반경 `2.0m` 안으로 들어오면 랩을 갱신합니다.
 
 
-## 현재 하드웨어 핀맵
+## 현재 하드웨어 핀맵 (PCB V3)
 
 | 구분 | 기능 | ESP32 GPIO | 연결/동작 |
 |------|------|------------|-----------|
-| CAN | TXD | GPIO18 | CAN 트랜시버 TXD |
-| CAN | RXD | GPIO17 | CAN 트랜시버 RXD |
-| LCD ILI9341 | CS | GPIO4 | LCD controller CS, SD_CS 아님 |
-| LCD ILI9341 | DC | GPIO5 | D/C, A0. GPIO5는 strapping pin이라 외부 pull-up/down 금지 |
-| LCD ILI9341 | RST | GPIO16 | LCD reset |
-| LCD ILI9341 | SCK | GPIO21 | SPI clock |
-| LCD ILI9341 | MOSI | GPIO19 | ESP32 -> LCD/Touch |
-| LCD / Touch SPI | MISO / T_DO | GPIO22 | Touch controller -> ESP32, LCD SDO readback optional |
-| LCD Touch XPT2046 | T_CS | GPIO23 | Touch chip select. 오른쪽 터치=다음 페이지, 왼쪽 터치=이전 페이지 |
-| GPS ZED-F9P | RX | GPIO35 | ZED-F9P TX2 -> ESP32, 115200 baud NMEA/UBX 수신 |
-| GPS ZED-F9P | TX | GPIO14 | ESP32 -> ZED-F9P RX2, NTRIP RTCM3 보정 데이터 송신 |
+| CAN | TXD | GPIO13 | CAN 트랜시버 TXD |
+| CAN | RXD | GPIO14 | CAN 트랜시버 RXD |
+| LCD ILI9341 | CS / RST / DC | GPIO23 / 22 / 21 | LCD 제어 |
+| LCD / Touch SPI | MOSI / SCK / MISO | GPIO17 / 18 / 35 | 공용 SPI |
+| LCD Touch XPT2046 | T_CS | GPIO16 | Touch chip select |
+| GPS ZED-F9P | RX / TX / PPS | GPIO25 / 26 / 27 | 115200 baud NMEA/UBX, RTCM3 및 PPS |
+| VESS | PWM | GPIO4 | ESS-DUAL+ RX-TH 50Hz servo PWM |
+| HMI | TV | GPIO32 | 토글 스위치, INPUT_PULLUP, ON=LOW |
 | HMI | Paddock | GPIO33 | 토글 스위치, INPUT_PULLUP, ON=LOW |
-| HMI | TC | GPIO25 | 토글 스위치, INPUT_PULLUP, ON=LOW |
-| HMI | Regen Auto | GPIO27 | 토글 스위치, INPUT_PULLUP, ON=LOW: VCU 자동 회생 허용, OFF=회생제동 OFF 요청 |
-| HMI | Debug | GPIO26 | 토글 스위치, INPUT_PULLUP, ON=LOW |
-| HMI | GPS Lap Start | GPIO32 | 순간 푸시 버튼, 정상 상태에서 GPS lap start 저장 |
-| HMI | Warning Detail | GPIO13 | 예비 입력. 현재 warning 상세 화면은 LCD 터치 페이지 3에서 표시 |
+| HMI | HOME | GPIO19 | 순간 푸시 버튼, INPUT_PULLUP, ON=LOW |
+| HMI | GPS Lap | GPIO5 | 순간 푸시 버튼, INPUT_PULLUP, ON=LOW |
+| HMI | Regen bit0 / bit1 | GPIO36 / 39 | 로터리, ON=LOW, 두 핀 모두 외부 풀업 필요 |
+| Sense | START_IN | GPIO34 | 시동 전원 감지 ADC. 버튼 출력 핀이 아님 |
 
-GPS TX2는 PCB에서 분기해 Cluster ESP32 `GPIO35`와 TMA-1 `GPS_RX`에 동시에 넣을 수 있다. TMA-1 `GPS_TX`는 ZED-F9P RX2에 연결하지 않는다.
+GPS TX2는 PCB V3에서 Cluster ESP32 `GPIO25` RX에 연결한다.
 
 Cluster는 부팅 시 ZED-F9P UART1/UART2가 460800 baud로 설정되어 있더라도 UBX 설정으로 115200 baud로 낮춘 뒤 통신한다. NMEA가 끊기면 115200 baud 복구를 다시 시도하므로, 같은 GPS TX에 연결된 외부 로거도 115200 baud로 유지할 수 있다.
 
-RTK 사용 시 Cluster ESP32가 Wi-Fi로 NTRIP caster에 접속하고, 수신한 RTCM3 바이트를 가공 없이 `GPIO14` UART TX로 ZED-F9P RX2에 전달한다. 실제 Wi-Fi/NTRIP 계정정보는 `include/ntrip_secrets.h`에 넣고 Git에는 올리지 않는다. `include/ntrip_secrets.example.h`를 복사해서 사용한다.
+RTK 사용 시 Cluster ESP32가 Wi-Fi로 NTRIP caster에 접속하고, 수신한 RTCM3 바이트를 가공 없이 `GPIO26` UART TX로 ZED-F9P RX2에 전달한다. 실제 Wi-Fi/NTRIP 계정정보는 `include/ntrip_secrets.h`에 넣고 Git에는 올리지 않는다. `include/ntrip_secrets.example.h`를 복사해서 사용한다.
 
-회생제동 입력은 기존 4단 로터리 셀렉터에서 `Regen Auto` 토글 1개로 변경했다. GPIO27 토글이 ON(LOW)이면 VCU 자동 회생제동 허용을 요청하고, OFF(HIGH)이면 회생제동 OFF를 요청한다. 실제 회생 가능 여부와 전류 제한은 VCU가 배터리 전압/SOC/고장 상태를 기준으로 최종 판단한다.
+회생제동 입력은 GPIO36/39 두 비트 로터리다. 0단은 OFF, 1~3단은 모두 같은 ON 요청으로 인코딩한다. 실제 회생 가능 여부와 전류 제한은 VCU가 최종 판단한다.
 
 GPIO15는 현재 펌웨어에서 사용하지 않는다. GPIO15는 strapping pin이므로 외부 회로가 부팅 순간 강하게 잡아당기지 않게 주의한다.
 
-GPIO34는 현재 펌웨어에서 사용하지 않는다. LV 12V 전압 측정용 저항분압 회로도 PCB에 넣지 않는다.
-
-VESS, 기어, 시동 스위치는 클러스터 패널/PCB에 물리 배치할 수 있지만 Cluster ESP32 GPIO에는 연결하지 않는다. 해당 신호는 VESS 회로 또는 VCU/차량 배선 쪽에서 처리한다.
+GPIO34는 PCB V3의 START_IN 전원 감지 ADC다. 현재는 입력으로만 설정하며 제어에는 사용하지 않는다. 기어는 VCU에서 읽는다.
 ## 어디서 작업하나
 
 | 폴더 | 내용 | 편집? |

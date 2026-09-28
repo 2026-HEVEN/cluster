@@ -33,12 +33,19 @@ static TelemetryValues diagnostic_values;
 namespace {
     // Physical GPIO assignments live in core/board_pins.h (PCB V3).
     constexpr uint8_t VESS_PWM_CHANNEL = 0;
-    constexpr uint32_t VESS_PWM_FREQUENCY_HZ = 50;
-    constexpr uint8_t VESS_PWM_RESOLUTION_BITS = 16;
+    constexpr uint32_t VESS_MIN_FREQUENCY_HZ = 50;
+    constexpr uint32_t VESS_MAX_FREQUENCY_HZ = 100;
+    constexpr uint32_t VESS_EXTERNAL_HIGH_US = 2000;
+    constexpr uint8_t VESS_PWM_RESOLUTION_BITS = 14;
+    constexpr uint16_t START_INPUT_ON_MV = 1500;
+    constexpr uint16_t START_INPUT_OFF_MV = 1000;
+    constexpr uint32_t START_INPUT_DEBOUNCE_MS = 20;
+    constexpr uint32_t REGEN_INPUT_DEBOUNCE_MS = 20;
     constexpr uint32_t CAN_STARTUP_GRACE_MS = 3000;
     constexpr uint32_t CONTROLLER_FRAME_TIMEOUT_MS = 300;
     constexpr uint32_t VCU_STATUS_TIMEOUT_MS = 300;
     constexpr uint32_t CAN_WARNING_HOLD_MS = 1000;
+    constexpr uint32_t DRIVETRAIN_WARNING_HOLD_MS = 5000;
     constexpr uint32_t VEHICLE_SPEED_TIMEOUT_MS = 300;
     constexpr uint32_t THROTTLE_TIMEOUT_MS = 300;
     constexpr uint32_t TORQUE_COMMAND_TIMEOUT_MS = 300;
@@ -73,16 +80,57 @@ namespace {
     bool ntrip_started = false;
     uint32_t last_gnss_position_seq_sent = 0;
     uint32_t can_warning_since_ms = 0;
+    uint32_t drivetrain_warning_sequence_seen = 0;
+    uint32_t vess_frequency_hz = 0;
 
+    struct DebouncedInput {
+        bool raw = false;
+        bool stable = false;
+        uint32_t changed_ms = 0;
+    };
+    DebouncedInput regen_bit0_input;
+    DebouncedInput regen_bit1_input;
+    bool start_input_candidate = false;
+    uint32_t start_input_candidate_since_ms = 0;
 
-    uint32_t vess_pulse_us_to_duty(uint16_t pulse_us) {
-        const uint32_t period_us = 1000000UL / VESS_PWM_FREQUENCY_HZ;
-        const uint32_t max_duty = (1UL << VESS_PWM_RESOLUTION_BITS) - 1UL;
-        return ((uint32_t)pulse_us * max_duty + period_us / 2UL) / period_us;
+    uint32_t vess_raw_high_duty(uint32_t frequency_hz) {
+        const uint32_t period_counts = 1UL << VESS_PWM_RESOLUTION_BITS;
+        const uint32_t max_duty = period_counts - 1UL;
+        const uint32_t external_high_counts =
+            ((uint64_t)period_counts * VESS_EXTERNAL_HIGH_US * frequency_hz + 500000UL) /
+            1000000UL;
+        const uint32_t raw_high_counts = period_counts - external_high_counts;
+        return raw_high_counts > max_duty ? max_duty : raw_high_counts;
     }
 
-    void vess_write_pulse(uint16_t pulse_us) {
-        ledcWrite(VESS_PWM_CHANNEL, vess_pulse_us_to_duty(pulse_us));
+    uint32_t vess_percent_to_frequency(int16_t percent) {
+        int32_t magnitude = percent < 0 ? -(int32_t)percent : (int32_t)percent;
+        if (magnitude > 100) magnitude = 100;
+        return VESS_MIN_FREQUENCY_HZ +
+               (uint32_t)magnitude * (VESS_MAX_FREQUENCY_HZ - VESS_MIN_FREQUENCY_HZ) / 100UL;
+    }
+
+    void vess_write_percent(int16_t percent) {
+        const uint32_t frequency_hz = vess_percent_to_frequency(percent);
+        if (frequency_hz != vess_frequency_hz) {
+            ledcSetup(VESS_PWM_CHANNEL, frequency_hz, VESS_PWM_RESOLUTION_BITS);
+            vess_frequency_hz = frequency_hz;
+        }
+        // PCB V3 uses one inverting NMOS stage. Keeping the MCU output HIGH
+        // except for this 2 ms LOW interval creates a 2 ms external HIGH pulse.
+        ledcWrite(VESS_PWM_CHANNEL, vess_raw_high_duty(frequency_hz));
+    }
+
+    bool debounce_active_low(DebouncedInput &input, int pin, uint32_t now) {
+        const bool raw = digitalRead(pin) == LOW;
+        if (raw != input.raw) {
+            input.raw = raw;
+            input.changed_ms = now;
+        }
+        if (input.stable != input.raw && now - input.changed_ms >= REGEN_INPUT_DEBOUNCE_MS) {
+            input.stable = input.raw;
+        }
+        return input.stable;
     }
 
     float absf(float v) { return v < 0.0f ? -v : v; }
@@ -126,6 +174,10 @@ namespace {
         const uint32_t now = millis();
         if (controller_fault_active()) {
             can_warning_since_ms = 0;
+            return true;
+        }
+        if (state.drivetrain_warning_sequence != 0 &&
+            now - state.drivetrain_warning_started_ms < DRIVETRAIN_WARNING_HOLD_MS) {
             return true;
         }
 
@@ -207,6 +259,14 @@ namespace {
             }
         }
         if (vcu_status_stale(now)) add_warning(labels, count, "VCU CAN TIMEOUT");
+        const bool drivetrain_visible = state.drivetrain_warning_sequence != 0 &&
+            now - state.drivetrain_warning_started_ms < DRIVETRAIN_WARNING_HOLD_MS;
+        if (drivetrain_visible) {
+            add_warning(labels, count, state.drivetrain_last_fault == 2
+                ? "DRIVE SYSTEM FAULT" : "DRIVE RPM WARNING");
+            add_warning(labels, count, state.drivetrain_last_side == 0
+                ? "LEFT MOTOR" : "RIGHT MOTOR");
+        }
 
         snapshot.warning_count = count;
         for (int i = 0; i < count; ++i) snapshot.warnings[i] = labels[i];
@@ -349,11 +409,12 @@ static void hmi_update() {
     page_button_update();
     status_touch_update();
 
+    const uint32_t now = millis();
     HmiSwitches sw;
     sw.paddock       = digitalRead(board_pins::PADDOCK_SWITCH) == LOW;
     sw.tc_enabled    = digitalRead(board_pins::TV_SWITCH) == LOW;
-    sw.regen_bit0 = digitalRead(board_pins::REGEN_BIT0) == LOW;
-    sw.regen_bit1 = digitalRead(board_pins::REGEN_BIT1) == LOW;
+    sw.regen_bit0 = debounce_active_low(regen_bit0_input, board_pins::REGEN_BIT0, now);
+    sw.regen_bit1 = debounce_active_low(regen_bit1_input, board_pins::REGEN_BIT1, now);
     sw.debug_enabled = false; // PCB V3 has no Debug switch input.
     ClusterCommand cmd = hmi_compute(sw);
     if (!state.gear_from_can) {
@@ -393,7 +454,26 @@ static void vess_update() {
         vehicle_on,
         state.gear,
     });
-    vess_write_pulse(out.pulse_us);
+    vess_write_percent(out.throttle_percent);
+}
+
+static void start_input_update() {
+    const uint32_t now = millis();
+    const uint32_t measured_mv = analogReadMilliVolts(board_pins::START_SENSE_ADC);
+    state.start_input_mv = measured_mv > UINT16_MAX ? UINT16_MAX : (uint16_t)measured_mv;
+    state.start_input_valid = true;
+
+    const bool candidate = state.start_input_present
+        ? measured_mv > START_INPUT_OFF_MV
+        : measured_mv >= START_INPUT_ON_MV;
+    if (candidate != start_input_candidate) {
+        start_input_candidate = candidate;
+        start_input_candidate_since_ms = now;
+    }
+    if (candidate != state.start_input_present &&
+        now - start_input_candidate_since_ms >= START_INPUT_DEBOUNCE_MS) {
+        state.start_input_present = candidate;
+    }
 }
 
 static void can_rx_update() { can_bus::poll_rx(); }
@@ -424,9 +504,25 @@ static void lap_can_tx_update() {
     can_bus::send_lap_time();
     can_bus::send_lap_status(gps_laptimer::timer_running());
 }
-static void diagnostics_update() { check_observe(diagnostic_history, diagnostic_values, millis()); }
+static void diagnostics_update() {
+    const uint32_t now = millis();
+    check_observe(diagnostic_history, diagnostic_values, now);
+    if (state.drivetrain_warning_sequence != 0) {
+        diagnostic_history.drivetrain(
+            state.drivetrain_warning_sequence,
+            state.drivetrain_last_side == 0 ? LinkId::MotorL : LinkId::MotorR,
+            state.drivetrain_last_fault == 2
+                ? EventKind::DriveDivergence : EventKind::DriveDropout,
+            state.drivetrain_warning_started_ms);
+    }
+}
 static void display_update() {
     fb.clear();
+    if (state.drivetrain_warning_sequence != drivetrain_warning_sequence_seen) {
+        drivetrain_warning_sequence_seen = state.drivetrain_warning_sequence;
+        check_ui.page = CheckPage::Warning;
+        check_ui.warning_page = 0;
+    }
     const bool warn = warning_active();
     ui_warning = warn;
     if (!warn && check_ui.page == CheckPage::Warning) check_ui.page = CheckPage::Menu;
@@ -451,6 +547,7 @@ Task g_tasks[] = {
     { gnss_position_can_tx_update, 20, 0 }, // event-driven: send once per new RMC fix
     { gnss_status_can_tx_update, 200, 0 },  // 5 Hz GNSS/RTK status telemetry
     { lap_can_tx_update, 200, 0 },          // 5 Hz lap telemetry
+    { start_input_update, 5, 0 },           // 200 Hz PCB V3 START presence monitor
     { hmi_update,     20, 0 },   // 50 Hz
     { vess_update,    20, 0 },   // 50 Hz VESS throttle-to-PWM output
     { diagnostics_update, 20, 0 }, // observe validity/edges; numeric history sampled at 2 Hz
@@ -467,19 +564,30 @@ void modules_init() {
     display_update();
     touch.begin();
     touch.setRotation(1);
-    ledcSetup(VESS_PWM_CHANNEL, VESS_PWM_FREQUENCY_HZ, VESS_PWM_RESOLUTION_BITS);
+    pinMode(board_pins::VESS_PWM, OUTPUT);
+    digitalWrite(board_pins::VESS_PWM, HIGH);
+    ledcSetup(VESS_PWM_CHANNEL, VESS_MIN_FREQUENCY_HZ, VESS_PWM_RESOLUTION_BITS);
     ledcAttachPin(board_pins::VESS_PWM, VESS_PWM_CHANNEL);
-    vess_write_pulse(1500);
+    vess_write_percent(0);
 
-    pinMode(board_pins::PADDOCK_SWITCH, INPUT_PULLUP);
-    pinMode(board_pins::TV_SWITCH, INPUT_PULLUP);
+    pinMode(board_pins::PADDOCK_SWITCH, INPUT);
+    pinMode(board_pins::TV_SWITCH, INPUT);
     // GPIO36/39 are input-only and have no internal pull-up. PCB V3 supplies
     // external pull-ups for both active-low rotary bits.
     pinMode(board_pins::REGEN_BIT0, INPUT);
     pinMode(board_pins::REGEN_BIT1, INPUT);
-    pinMode(board_pins::HOME_BUTTON, INPUT_PULLUP);
-    pinMode(board_pins::LAP_BUTTON, INPUT_PULLUP);
+    pinMode(board_pins::HOME_BUTTON, INPUT);
+    pinMode(board_pins::LAP_BUTTON, INPUT);
     pinMode(board_pins::START_SENSE_ADC, INPUT);
+    analogReadResolution(12);
+    analogSetPinAttenuation(board_pins::START_SENSE_ADC, ADC_11db);
+    const uint32_t now = millis();
+    regen_bit0_input.raw = regen_bit0_input.stable =
+        digitalRead(board_pins::REGEN_BIT0) == LOW;
+    regen_bit1_input.raw = regen_bit1_input.stable =
+        digitalRead(board_pins::REGEN_BIT1) == LOW;
+    regen_bit0_input.changed_ms = regen_bit1_input.changed_ms = now;
+    start_input_candidate_since_ms = now;
     can_bus::begin();
     gps_laptimer::begin();
     bms_ble::begin();

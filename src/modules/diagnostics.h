@@ -17,7 +17,7 @@ struct CheckUi {
 };
 struct CheckSnapshot {
     char summaries[4][2][24]{};
-    char motor[9][3][20]{};
+    char motor[10][3][20]{};
     char power[12][2][25]{},vcu[12][2][25]{},gps[12][2][25]{};
     char sensors[12][2][25]{},control[12][2][25]{};
     char reasons[15][40]{};

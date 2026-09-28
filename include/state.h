@@ -52,6 +52,18 @@ struct ClusterState {
     bool     controller_r_seen = false;
     uint32_t controller_r_fb1_last_ms = 0;
     uint32_t controller_r_fb2_last_ms = 0;
+    // Cluster-local drivetrain anomaly monitor. Values are latched until reboot:
+    // 0=none, 1=repeated RPM dropout, 2=sustained RPM divergence.
+    uint8_t  drivetrain_fault_l = 0;
+    uint8_t  drivetrain_fault_r = 0;
+    uint16_t drivetrain_dropouts_l = 0;
+    uint16_t drivetrain_dropouts_r = 0;
+    uint32_t drivetrain_last_event_ms_l = 0;
+    uint32_t drivetrain_last_event_ms_r = 0;
+    uint8_t  drivetrain_last_fault = 0;
+    uint8_t  drivetrain_last_side = 0; // 0=left, 1=right
+    uint32_t drivetrain_warning_started_ms = 0;
+    uint32_t drivetrain_warning_sequence = 0;
     uint8_t  gear   = 0;            // display gear: 0=N, 1=R, 2=D, 3=P
     bool     gear_from_can = false; // true after VCU-confirmed status arrives
     uint32_t vcu_cluster_status_last_ms = 0;
@@ -72,6 +84,12 @@ struct ClusterState {
     uint8_t  regen_level = 0;
     bool     debug_enabled = false;
     bool     reset_req  = false;
+
+    // PCB V3 START input monitor. start_input_mv is the divided ADC pin
+    // voltage, not the original 9-12 V harness voltage.
+    bool     start_input_present = false;
+    bool     start_input_valid = false;
+    uint16_t start_input_mv = 0;
 
 
     // BMS telemetry (display-only). BMS data may arrive directly over BLE

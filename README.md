@@ -52,11 +52,11 @@ pio run -e esp32dev -t upload
 | LCD / Touch SPI | MOSI / SCK / MISO | GPIO17 / 18 / 35 | 공용 SPI |
 | LCD Touch XPT2046 | T_CS | GPIO16 | Touch chip select |
 | GPS ZED-F9P | RX / TX / PPS | GPIO25 / 26 / 27 | 115200 baud NMEA/UBX, RTCM3 및 PPS |
-| VESS | PWM | GPIO4 | ESS-DUAL+ RX-TH 50Hz servo PWM |
-| HMI | TV | GPIO32 | 토글 스위치, INPUT_PULLUP, ON=LOW |
-| HMI | Paddock | GPIO33 | 토글 스위치, INPUT_PULLUP, ON=LOW |
-| HMI | HOME | GPIO19 | 순간 푸시 버튼, INPUT_PULLUP, ON=LOW |
-| HMI | GPS Lap | GPIO5 | 순간 푸시 버튼, INPUT_PULLUP, ON=LOW |
+| VESS | PWM | GPIO4 | 반전 MOSFET 구동, 외부 HIGH 약 2ms, 50~100Hz |
+| HMI | TV | GPIO32 | 토글 스위치, PCB 외부 10k 풀업, ON=LOW |
+| HMI | Paddock | GPIO33 | 토글 스위치, PCB 외부 10k 풀업, ON=LOW |
+| HMI | HOME | GPIO19 | 순간 푸시 버튼, PCB 외부 10k 풀업, ON=LOW |
+| HMI | GPS Lap | GPIO5 | 순간 푸시 버튼, PCB 외부 10k 풀업, ON=LOW |
 | HMI | Regen bit0 / bit1 | GPIO36 / 39 | 로터리, ON=LOW, 두 핀 모두 외부 풀업 필요 |
 | Sense | START_IN | GPIO34 | 시동 전원 감지 ADC. 버튼 출력 핀이 아님 |
 
@@ -70,7 +70,7 @@ RTK 사용 시 Cluster ESP32가 Wi-Fi로 NTRIP caster에 접속하고, 수신한
 
 GPIO15는 현재 펌웨어에서 사용하지 않는다. GPIO15는 strapping pin이므로 외부 회로가 부팅 순간 강하게 잡아당기지 않게 주의한다.
 
-GPIO34는 PCB V3의 START_IN 전원 감지 ADC다. 현재는 입력으로만 설정하며 제어에는 사용하지 않는다. 기어는 VCU에서 읽는다.
+GPIO34는 PCB V3의 START_IN 전원 감지 ADC다. 5ms마다 분압된 핀 전압을 읽고, 1.5V 이상에서 ON, 1.0V 이하에서 OFF로 판정하며 20ms 디바운스를 적용한다. 이 값은 Car Check의 VCU/SENSOR 상세 화면에 표시할 뿐 차량 제어에는 사용하지 않는다. 기어는 VCU에서 읽는다.
 ## 어디서 작업하나
 
 | 폴더 | 내용 | 편집? |

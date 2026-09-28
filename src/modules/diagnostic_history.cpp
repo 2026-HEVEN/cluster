@@ -49,6 +49,11 @@ void DiagnosticHistory::fault(LinkId id,uint32_t bitmap,bool valid,uint32_t now)
     }
     faults_[i]=bitmap;
 }
+void DiagnosticHistory::drivetrain(uint32_t sequence,LinkId id,EventKind kind,uint32_t now) {
+    if(!sequence || sequence==drivetrain_sequence_) return;
+    drivetrain_sequence_=sequence;
+    append(id,kind,0,now);
+}
 const char *diagnostic_link_name(LinkId id) {
     static const char *names[]={"MOTOR L","MOTOR R","VCU","WSS","STEER","IMU","WHEELS","CONTROL","BMS","EM","GNSS","WIFI","NTRIP","RTCM"};
     return names[static_cast<size_t>(id)];

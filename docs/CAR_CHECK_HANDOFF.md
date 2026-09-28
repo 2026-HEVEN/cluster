@@ -37,15 +37,15 @@ Implemented: controller phase current, EM HV current/CPU temperature, four wheel
 
 | Function | GPIO / connection | Note |
 | --- | --- | --- |
-| TV ON/OFF switch | GPIO32 to GND | Internal pull-up, active-low. |
+| TV ON/OFF switch | GPIO32 to GND | PCB 10k external pull-up, active-low. |
 | Regen rotary bit0 | GPIO36 | External pull-up, active-low. |
 | Regen rotary bit1 | GPIO39 | External pull-up, active-low. |
 | Rotary common | GND | 0=OFF; 1/2/3 identical ON, not three strengths. |
-| HOME momentary button | GPIO19 to GND | Internal pull-up, active-low. |
-| GPS LAP momentary button | GPIO5 to GND | Internal pull-up, active-low. |
-| VESS PWM output | GPIO4 | Output to VESS. |
-| Paddock | GPIO33 | Internal pull-up, active-low. |
-| START_IN sense | GPIO34 | ADC input; not a button output. |
+| HOME momentary button | GPIO19 to GND | PCB 10k external pull-up, active-low. |
+| GPS LAP momentary button | GPIO5 to GND | PCB 10k external pull-up, active-low. |
+| VESS PWM output | GPIO4 | Inverting MOSFET; external HIGH about 2ms at 50-100Hz. |
+| Paddock | GPIO33 | PCB 10k external pull-up, active-low. |
+| START_IN sense | GPIO34 | ADC presence input; shown on VCU/SENSOR detail page. |
 
 The UI redesign itself needs no extra analog wiring. EM voltage data arrives over the existing 250kbps CAN bus.
 

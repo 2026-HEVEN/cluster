@@ -11,6 +11,7 @@
 #include "core/gps_laptimer.h"
 #include "core/ntrip.h"
 #include "core/board_pins.h"
+#include "modules/drivetrain_monitor.h"
 
 namespace can_bus {
 
@@ -33,6 +34,7 @@ namespace {
     constexpr uint32_t BMS_CAN_STALE_MS = 5000;
     constexpr uint32_t GPS_CAN_STALE_MS = 3000;
     constexpr uint32_t RTCM_CAN_FRESH_MS = 5000;
+    DrivetrainMonitor drivetrain_monitor;
 
     float absf(float v) { return v < 0.0f ? -v : v; }
 
@@ -46,6 +48,24 @@ namespace {
         } else if (state.controller_r_seen) {
             state.speed_rpm = right;
         }
+    }
+
+    void update_drivetrain_monitor(DrivetrainSide side, float rpm, uint32_t now) {
+        const DrivetrainMonitorEvent event =
+            drivetrain_monitor.receive(side, static_cast<int>(rpm), now);
+        const DrivetrainMonitorStatus &status = drivetrain_monitor.status();
+        state.drivetrain_fault_l = static_cast<uint8_t>(status.left);
+        state.drivetrain_fault_r = static_cast<uint8_t>(status.right);
+        state.drivetrain_dropouts_l = status.left_dropouts;
+        state.drivetrain_dropouts_r = status.right_dropouts;
+        state.drivetrain_last_event_ms_l = status.left_last_event_ms;
+        state.drivetrain_last_event_ms_r = status.right_last_event_ms;
+        if (!event.triggered) return;
+
+        state.drivetrain_last_fault = static_cast<uint8_t>(event.fault);
+        state.drivetrain_last_side = static_cast<uint8_t>(event.side);
+        state.drivetrain_warning_started_ms = event.ms;
+        ++state.drivetrain_warning_sequence;
     }
 
     // Part I: bytes 0-1 voltage, 2-3 bus current, 4-5 phase current, 6-7 speed.
@@ -195,6 +215,7 @@ void poll_rx() {
                 decode_fb1(m.data, state.bus_voltage, state.bus_current, state.speed_rpm_l);
                 state.controller_l_seen = true;
                 state.controller_l_fb1_last_ms = now;
+                update_drivetrain_monitor(DrivetrainSide::Left, state.speed_rpm_l, now);
                 update_display_rpm();
                 break;
             case CAN_ID_FB1_R:
@@ -202,6 +223,7 @@ void poll_rx() {
                 decode_fb1(m.data, state.bus_voltage_r, state.bus_current_r, state.speed_rpm_r);
                 state.controller_r_seen = true;
                 state.controller_r_fb1_last_ms = now;
+                update_drivetrain_monitor(DrivetrainSide::Right, state.speed_rpm_r, now);
                 update_display_rpm();
                 break;
             case CAN_ID_FB2_L:

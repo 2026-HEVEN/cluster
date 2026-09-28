@@ -131,15 +131,15 @@ void test_quality_legacy_invalid_stale(){
 void test_navigation_and_marker_contract(){
     CheckUi u;u.tap(80,40,false);TEST_ASSERT_TRUE(u.page==CheckPage::Graph);
     u.tap(270,16,false);TEST_ASSERT_TRUE(u.page==CheckPage::Home);
-    u.tap(50,150,true);TEST_ASSERT_TRUE(u.page==CheckPage::Warning);
+    u.tap(50,120,true);TEST_ASSERT_TRUE(u.page==CheckPage::Warning);
     u.tap(230,220,true);TEST_ASSERT_TRUE(u.page==CheckPage::Menu);
     u.tap(50,70,false);TEST_ASSERT_TRUE(u.page==CheckPage::Motor);
     const CheckPage pages[]={CheckPage::Motor,CheckPage::Power,CheckPage::Vcu,CheckPage::Gps};
     int count=0;
-    for(auto p:pages) for(int row=0;row<(p==CheckPage::Motor?9:12);++row) {
+    for(auto p:pages) for(int row=0;row<(p==CheckPage::Motor?10:12);++row) {
         GraphKind kind;
         if(!check_graph_for_row(p,row,kind)) continue;
-        ++count;u.page=p;u.tap(170,p==CheckPage::Motor?64+row*17:45+row*14,false);
+        ++count;u.page=p;u.tap(170,p==CheckPage::Motor?58+row*15:45+row*14,false);
         TEST_ASSERT_TRUE(u.page==CheckPage::Graph);TEST_ASSERT_TRUE(u.graph==kind);
         u.tap(270,16,false);TEST_ASSERT_TRUE(u.page==p);
     }
@@ -153,9 +153,9 @@ void test_marker_pixels_match_touch(){
     CheckSnapshot d;DiagnosticHistory h;TelemetryValues v;FrameBuffer f;CheckUi u;
     for(auto p:{CheckPage::Motor,CheckPage::Power,CheckPage::Vcu,CheckPage::Gps,CheckPage::Sensors}) {
         u.page=p;f.clear();check_draw(f,u,d,h,v,600000);
-        for(int r=0;r<(p==CheckPage::Motor?9:12);++r) {
+        for(int r=0;r<(p==CheckPage::Motor?10:12);++r) {
             GraphKind k;bool clickable=check_graph_for_row(p,r,k),ink=false;
-            int y=p==CheckPage::Motor?64+r*17:45+r*14;
+            int y=p==CheckPage::Motor?58+r*15:45+r*14;
             for(int a=1;a<=5;++a)for(int b=y;b<y+7;++b)ink|=f.get(a,b);
             TEST_ASSERT_EQUAL(clickable,ink);
         }
@@ -172,8 +172,21 @@ void test_disconnected_not_zero_ok(){
 void test_independent_motor_frames(){
     state.controller_l_fb1_last_ms=599900;
     CheckSnapshot d;check_snapshot(d,600000);
-    TEST_ASSERT_EQUAL_STRING("0.0 V",d.motor[1][1]);TEST_ASSERT_EQUAL_STRING("-- WAIT",d.motor[5][1]);
+    TEST_ASSERT_EQUAL_STRING("0.0 V",d.motor[1][1]);TEST_ASSERT_EQUAL_STRING("OK / D0",d.motor[5][1]);
+    TEST_ASSERT_EQUAL_STRING("-- WAIT",d.motor[6][1]);
     TEST_ASSERT_EQUAL_STRING("-- WAIT",d.motor[1][2]);
+}
+void test_drivetrain_latch_snapshot_and_history(){
+    state.controller_r_fb1_last_ms=599900;
+    state.drivetrain_fault_r=1;state.drivetrain_dropouts_r=3;
+    CheckSnapshot d;check_snapshot(d,600000);
+    TEST_ASSERT_EQUAL_STRING("DROPOUT 3",d.motor[5][2]);
+    DiagnosticHistory h;
+    h.drivetrain(1,LinkId::MotorR,EventKind::DriveDropout,599000);
+    h.drivetrain(1,LinkId::MotorR,EventKind::DriveDropout,599000);
+    TEST_ASSERT_EQUAL(1,h.event_count());
+    TEST_ASSERT_TRUE(h.event(0).kind==EventKind::DriveDropout);
+    TEST_ASSERT_TRUE(h.event(0).node==LinkId::MotorR);
 }
 void test_wss_never_rpm_fallback(){
     state.vehicle_speed_kph=40;state.vehicle_speed_valid=true;
@@ -186,7 +199,11 @@ void test_requests_distinct_and_no_pressure(){
     uint8_t b[]={1,0,0,1,1,0,0,1};state.car_check.receive(car_check::CONTROL_ID,b,8,true,false,600000);
     CheckSnapshot d;check_snapshot(d,600000);
     TEST_ASSERT_EQUAL_STRING("ON / OFF",d.vcu[5][1]);TEST_ASSERT_EQUAL_STRING("ON / OFF",d.control[0][1]);
-    TEST_ASSERT_EQUAL_STRING("NOT PROVIDED",d.vcu[11][1]);
+    TEST_ASSERT_EQUAL_STRING("-- WAIT",d.vcu[11][1]);
+    TEST_ASSERT_EQUAL_STRING("NOT PROVIDED",d.sensors[10][1]);
+    state.start_input_valid=true;state.start_input_present=true;state.start_input_mv=2250;
+    check_snapshot(d,600000);
+    TEST_ASSERT_EQUAL_STRING("ON / ADC 2.25V",d.vcu[11][1]);
     b[0]=2;state.car_check.receive(car_check::CONTROL_ID,b,8,true,false,600000);check_snapshot(d,600000);
     TEST_ASSERT_FALSE(d.control_valid);TEST_ASSERT_EQUAL_STRING("-- UNKNOWN",d.control[1][1]);
 }
@@ -240,12 +257,34 @@ void test_home_brake_status(){
     TEST_ASSERT_FALSE(stale_ink);
 }
 void test_home_hit_areas(){
-    CheckUi u;u.tap(269,107,false);TEST_ASSERT_TRUE(u.page==CheckPage::Graph);
-    u.tap(270,16,false);u.tap(270,107,false);TEST_ASSERT_TRUE(u.page==CheckPage::Menu);
-    u.home();u.tap(100,170,false);TEST_ASSERT_TRUE(u.page==CheckPage::Graph);
+    CheckUi u;
+    u.tap(260,111,false);TEST_ASSERT_TRUE(u.page==CheckPage::Graph);
+    TEST_ASSERT_TRUE(u.graph==GraphKind::Wss);TEST_ASSERT_TRUE(u.graph_origin==CheckPage::Home);
+    u.tap(270,16,false);TEST_ASSERT_TRUE(u.page==CheckPage::Home);
+    u.tap(261,107,false);TEST_ASSERT_TRUE(u.page==CheckPage::Menu);
+    u.home();u.tap(0,138,false);TEST_ASSERT_TRUE(u.page==CheckPage::Graph);
     TEST_ASSERT_TRUE(u.graph==GraphKind::EmA);TEST_ASSERT_TRUE(u.graph_origin==CheckPage::Home);
     u.tap(270,16,false);TEST_ASSERT_TRUE(u.page==CheckPage::Home);
+    u.tap(275,183,false);TEST_ASSERT_TRUE(u.page==CheckPage::Graph);
+    u.tap(270,16,false);TEST_ASSERT_TRUE(u.page==CheckPage::Home);
+    u.tap(276,183,false);TEST_ASSERT_TRUE(u.page==CheckPage::Menu);
     u.home();u.tap(20,120,true);TEST_ASSERT_TRUE(u.page==CheckPage::Warning);
+}
+void test_back_and_car_check_navigation(){
+    CheckUi u;
+    u.tap(20,120,false);TEST_ASSERT_TRUE(u.page==CheckPage::Menu);
+    u.tap(80,80,false);TEST_ASSERT_TRUE(u.page==CheckPage::Motor);
+    u.tap(270,16,false);TEST_ASSERT_TRUE(u.page==CheckPage::Menu);
+    u.tap(240,80,false);TEST_ASSERT_TRUE(u.page==CheckPage::Power);
+    u.tap(170,45+2*14,false);TEST_ASSERT_TRUE(u.page==CheckPage::Graph);
+    TEST_ASSERT_TRUE(u.graph==GraphKind::BmsV);
+    u.tap(270,16,false);TEST_ASSERT_TRUE(u.page==CheckPage::Power);
+    u.tap(270,16,false);TEST_ASSERT_TRUE(u.page==CheckPage::Menu);
+    u.tap(80,170,false);TEST_ASSERT_TRUE(u.page==CheckPage::Vcu);
+    u.tap(270,16,false);TEST_ASSERT_TRUE(u.page==CheckPage::Menu);
+    u.tap(240,170,false);TEST_ASSERT_TRUE(u.page==CheckPage::Gps);
+    u.tap(270,16,false);TEST_ASSERT_TRUE(u.page==CheckPage::Menu);
+    u.tap(270,16,false);TEST_ASSERT_TRUE(u.page==CheckPage::Home);
 }
 void test_detail_rows_have_no_separators(){
     CheckSnapshot d;DiagnosticHistory h;TelemetryValues v;FrameBuffer f;CheckUi u;
@@ -335,9 +374,9 @@ int main(int,char**){
     RUN_TEST(test_rtk_steps_and_baseline);RUN_TEST(test_rtk_bounded);
     RUN_TEST(test_receiver_contract);RUN_TEST(test_reject_malformed_frames);RUN_TEST(test_quality_legacy_invalid_stale);
     RUN_TEST(test_navigation_and_marker_contract);RUN_TEST(test_marker_pixels_match_touch);RUN_TEST(test_required_glyphs_exist);
-    RUN_TEST(test_disconnected_not_zero_ok);RUN_TEST(test_independent_motor_frames);RUN_TEST(test_wss_never_rpm_fallback);
+    RUN_TEST(test_disconnected_not_zero_ok);RUN_TEST(test_independent_motor_frames);RUN_TEST(test_drivetrain_latch_snapshot_and_history);RUN_TEST(test_wss_never_rpm_fallback);
     RUN_TEST(test_requests_distinct_and_no_pressure);RUN_TEST(test_sensor_quality_not_numeric_legacy);
     RUN_TEST(test_observer_fix_and_rtcm_independent);RUN_TEST(test_graph_voltage_scaling_and_back_button);
-    RUN_TEST(test_em_power_and_soc_sources);RUN_TEST(test_home_brake_status);RUN_TEST(test_home_hit_areas);RUN_TEST(test_detail_rows_have_no_separators);RUN_TEST(test_home_power_bar_direction);RUN_TEST(test_render_production_screens);
+    RUN_TEST(test_em_power_and_soc_sources);RUN_TEST(test_home_brake_status);RUN_TEST(test_home_hit_areas);RUN_TEST(test_back_and_car_check_navigation);RUN_TEST(test_detail_rows_have_no_separators);RUN_TEST(test_home_power_bar_direction);RUN_TEST(test_render_production_screens);
     return UNITY_END();
 }

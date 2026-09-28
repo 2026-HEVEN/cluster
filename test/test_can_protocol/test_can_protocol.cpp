@@ -45,13 +45,13 @@ void test_decode_vcu_vehicle_speed_valid(void) {
     TEST_ASSERT_TRUE(valid);
     TEST_ASSERT_FLOAT_WITHIN(0.01f, 100.0f, kph);
 }
-void test_decode_vcu_vehicle_speed_invalid_clears_value(void) {
+void test_decode_vcu_vehicle_speed_invalid_keeps_value(void) {
     uint8_t d[8] = {0xE8, 0x03, 0, 0, 0, 0, 0, 0};
     float kph = -1.0f;
     bool valid = true;
     decode_vcu_vehicle_speed(d, kph, valid);
     TEST_ASSERT_FALSE(valid);
-    TEST_ASSERT_FLOAT_WITHIN(0.01f, 0.0f, kph);
+    TEST_ASSERT_FLOAT_WITHIN(0.01f, 100.0f, kph);
 }
 void test_decode_vcu_vehicle_speed_zero_valid(void) {
     uint8_t d[8] = {0x00, 0x00, 1, 0, 0, 0, 0, 0};
@@ -274,7 +274,7 @@ int main(int, char **) {
     RUN_TEST(test_decode_temp);
     RUN_TEST(test_decode_speed);
     RUN_TEST(test_decode_vcu_vehicle_speed_valid);
-    RUN_TEST(test_decode_vcu_vehicle_speed_invalid_clears_value);
+    RUN_TEST(test_decode_vcu_vehicle_speed_invalid_keeps_value);
     RUN_TEST(test_decode_vcu_vehicle_speed_zero_valid);
     RUN_TEST(test_decode_vcu_vehicle_speed_max_value);
     RUN_TEST(test_decode_vcu_cluster_status_paddock_feedback);

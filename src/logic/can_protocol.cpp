@@ -154,8 +154,9 @@ VcuClusterStatus decode_vcu_cluster_status(const uint8_t data[8]) {
 }
 
 void decode_vcu_vehicle_speed(const uint8_t d[8], float &kph, bool &valid) {
+    // 값은 플래그와 무관하게 해독한다. 표시에 쓸지는 받는 쪽이 정한다.
     valid = d[2] == 1;
-    kph = valid ? (float)get_u16le(d) * 0.1f : 0.0f;
+    kph = (float)get_u16le(d) * 0.1f;
 }
 
 bool is_ezkontrol_handshake_probe(const uint8_t data[8]) {

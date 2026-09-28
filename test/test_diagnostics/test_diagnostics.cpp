@@ -194,6 +194,17 @@ void test_wss_never_rpm_fallback(){
     state.wss_kph=12;state.wss_valid=true;state.vehicle_speed_last_rx_ms=600000;
     check_snapshot(d,600000);TEST_ASSERT_EQUAL_STRING("12.0 km/h",d.vcu[4][1]);
 }
+void test_home_speed_holds_through_short_invalid(){
+    // 차속 프레임은 계속 오는데 valid만 잠깐 0: 직전 값 유지, 1초 넘으면 '--'.
+    state.wss_kph=42;state.wss_valid=false;state.vehicle_speed_last_rx_ms=600000;
+    state.wss_last_valid_ms=599500;
+    HomeData d=check_home_snapshot(600000);TEST_ASSERT_TRUE(d.speed_ok);TEST_ASSERT_FLOAT_WITHIN(.01,42,d.speed);
+    state.wss_last_valid_ms=598900;
+    d=check_home_snapshot(600000);TEST_ASSERT_FALSE(d.speed_ok);
+    // valid였어도 프레임 자체가 끊기면 '--'.
+    state.wss_valid=true;state.wss_last_valid_ms=599400;state.vehicle_speed_last_rx_ms=599400;
+    d=check_home_snapshot(600000);TEST_ASSERT_FALSE(d.speed_ok);
+}
 void test_requests_distinct_and_no_pressure(){
     state.tc_enabled=true;state.regen_level=1;
     uint8_t b[]={1,0,0,1,1,0,0,1};state.car_check.receive(car_check::CONTROL_ID,b,8,true,false,600000);
@@ -374,7 +385,7 @@ int main(int,char**){
     RUN_TEST(test_rtk_steps_and_baseline);RUN_TEST(test_rtk_bounded);
     RUN_TEST(test_receiver_contract);RUN_TEST(test_reject_malformed_frames);RUN_TEST(test_quality_legacy_invalid_stale);
     RUN_TEST(test_navigation_and_marker_contract);RUN_TEST(test_marker_pixels_match_touch);RUN_TEST(test_required_glyphs_exist);
-    RUN_TEST(test_disconnected_not_zero_ok);RUN_TEST(test_independent_motor_frames);RUN_TEST(test_drivetrain_latch_snapshot_and_history);RUN_TEST(test_wss_never_rpm_fallback);
+    RUN_TEST(test_disconnected_not_zero_ok);RUN_TEST(test_independent_motor_frames);RUN_TEST(test_drivetrain_latch_snapshot_and_history);RUN_TEST(test_wss_never_rpm_fallback);RUN_TEST(test_home_speed_holds_through_short_invalid);
     RUN_TEST(test_requests_distinct_and_no_pressure);RUN_TEST(test_sensor_quality_not_numeric_legacy);
     RUN_TEST(test_observer_fix_and_rtcm_independent);RUN_TEST(test_graph_voltage_scaling_and_back_button);
     RUN_TEST(test_em_power_and_soc_sources);RUN_TEST(test_home_brake_status);RUN_TEST(test_home_hit_areas);RUN_TEST(test_back_and_car_check_navigation);RUN_TEST(test_detail_rows_have_no_separators);RUN_TEST(test_home_power_bar_direction);RUN_TEST(test_render_production_screens);

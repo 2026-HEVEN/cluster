@@ -20,6 +20,7 @@ struct ClusterState {
     float phase_current = 0.0f, phase_current_r = 0.0f;
     float wss_kph = 0.0f;
     bool wss_valid = false;
+    uint32_t wss_last_valid_ms = 0;   // 마지막으로 valid 차속 프레임을 받은 시각
     // received vehicle state (from CAN, sniffed off VCU feedback frames)
     // speed_rpm is the LCD/display aggregate: abs(left) until both sides are
     // seen, then avg(abs(left), abs(right)).

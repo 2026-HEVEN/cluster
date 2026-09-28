@@ -241,10 +241,21 @@ void poll_rx() {
                 decode_vcu_cluster_status(m.data, now);
                 break;
             case CAN_ID_VCU_VEHICLE_SPEED:
-                decode_vcu_vehicle_speed(m.data, state.vehicle_speed_kph, state.vehicle_speed_valid);
-                state.wss_kph = state.vehicle_speed_kph;
-                state.wss_valid = state.vehicle_speed_valid;
+            {
+                float kph = 0.0f;
+                bool valid = false;
+                decode_vcu_vehicle_speed(m.data, kph, valid);
+                // invalid 프레임은 직전 valid 값을 유지한다. 구버전 VCU는 invalid일 때
+                // 속도를 0으로 보내므로 그대로 쓰면 표시가 0으로 튄다.
+                if (valid) {
+                    state.wss_kph = kph;
+                    state.wss_last_valid_ms = now;
+                }
+                state.wss_valid = valid;
+                state.vehicle_speed_kph = state.wss_kph;
+                state.vehicle_speed_valid = valid;
                 state.vehicle_speed_last_rx_ms = now;
+            }
                 break;
             default:
                 break;

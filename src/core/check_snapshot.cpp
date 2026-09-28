@@ -7,6 +7,7 @@
 #include <cmath>
 
 namespace {
+constexpr uint32_t HOME_SPEED_INVALID_HOLD_MS=1000;
 bool fresh(uint32_t stamp,uint32_t now,uint32_t limit) { return stamp && now-stamp<=limit; }
 const char *link(uint32_t stamp,uint32_t now,uint32_t limit) {
     return !stamp ? "WAIT" : fresh(stamp,now,limit) ? "LIVE" : "STALE";
@@ -202,7 +203,11 @@ void check_observe(DiagnosticHistory &h,TelemetryValues &v,uint32_t now) {
 }
 HomeData check_home_snapshot(uint32_t now) {
     HomeData d;
-    d.speed=state.wss_kph;d.speed_ok=state.wss_valid&&fresh(state.vehicle_speed_last_rx_ms,now,300);
+    // 짧은 invalid(가속 중 WSS 판정 흔들림)에는 직전 값을 계속 보여 준다.
+    // 프레임이 끊기거나 valid가 1초 넘게 없을 때만 '--'.
+    d.speed=state.wss_kph;
+    d.speed_ok=fresh(state.vehicle_speed_last_rx_ms,now,300)&&
+        fresh(state.wss_last_valid_ms,now,HOME_SPEED_INVALID_HOLD_MS);
     d.throttle=state.throttle_pct;d.throttle_ok=state.throttle_valid&&fresh(state.throttle_last_rx_ms,now,300);
     d.gear=state.gear;d.gear_ok=state.gear_from_can&&fresh(state.vcu_cluster_status_last_ms,now,300);
     d.brake_valid=fresh(state.vcu_cluster_status_last_ms,now,300);

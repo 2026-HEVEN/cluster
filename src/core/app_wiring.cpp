@@ -668,7 +668,13 @@ static void display_update() {
         touch_map(touch_cal, cur_x, cur_y, x, y);
         touch_marker_draw(fb, x, y);
     }
+    const uint32_t blit_start_us = micros();
     display_blit::show(fb, warn);
+    static uint32_t blit_log_ms = 0;
+    if (touch_debug && now_ms - blit_log_ms >= 2000) {
+        blit_log_ms = now_ms;
+        Serial.printf("[TOUCH] display blit %lu us\n", static_cast<unsigned long>(micros() - blit_start_us));
+    }
 }
 
 Task g_tasks[] = {
@@ -700,6 +706,7 @@ void modules_init() {
     touch.begin();
     touch.setRotation(1);   // library rotation 1 = controller axes unchanged; mapping is in touch_cal
     touch_calibration_load();
+    display_blit::set_idle_hook(touch_update);
     pinMode(board_pins::VESS_PWM, OUTPUT);
     digitalWrite(board_pins::VESS_PWM, HIGH);
     ledcSetup(VESS_PWM_CHANNEL, VESS_MIN_FREQUENCY_HZ, VESS_PWM_RESOLUTION_BITS);

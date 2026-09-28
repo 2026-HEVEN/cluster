@@ -17,7 +17,23 @@ int run(TouchTracker &t, const TouchRawSample *s, int n, uint32_t &now, TouchTap
 }
 }
 
-void test_clean_press_gives_one_tap_on_release(void) {
+void test_tap_fires_on_press_before_release(void) {
+    TouchTracker t;
+    uint32_t now = 0;
+    TEST_ASSERT_FALSE(t.feed(down(1000, 2000), now).valid);
+    const TouchTap tap = t.feed(down(1000, 2000), now + 10);
+    TEST_ASSERT_TRUE(tap.valid);
+    TEST_ASSERT_EQUAL_INT16(1000, tap.raw_x);
+}
+
+void test_quick_two_sample_tap_is_accepted(void) {
+    TouchTracker t;
+    TouchRawSample s[] = {down(1000, 2000), down(1000, 2000), up(), up(), up(), up(), up(), up(), up()};
+    uint32_t now = 0; TouchTap last;
+    TEST_ASSERT_EQUAL_INT(1, run(t, s, 9, now, last));
+}
+
+void test_clean_press_gives_one_tap(void) {
     TouchTracker t;
     TouchRawSample s[] = {down(1000, 2000), down(1000, 2000), down(1000, 2000), down(1000, 2000),
                           up(), up(), up(), up(), up(), up(), up(), up()};
@@ -65,13 +81,13 @@ void test_press_right_after_tap_is_locked_out(void) {
     TEST_ASSERT_EQUAL_INT(1, run(t, s, 21, now, last));
 }
 
-void test_long_hold_is_not_a_tap(void) {
+void test_long_hold_is_one_tap(void) {
     TouchTracker t;
     uint32_t now = 0;
     int taps = 0;
     for (int i = 0; i < 300; ++i) { if (t.feed(down(1000, 2000), now).valid) ++taps; now += 10; }
     for (int i = 0; i < 10; ++i) { if (t.feed(up(), now).valid) ++taps; now += 10; }
-    TEST_ASSERT_EQUAL_INT(0, taps);
+    TEST_ASSERT_EQUAL_INT(1, taps);
 }
 
 void test_default_calibration_matches_previous_mapping(void) {
@@ -143,12 +159,14 @@ void test_calibrator_rejects_collapsed_axis(void) {
 
 int main(int, char **) {
     UNITY_BEGIN();
-    RUN_TEST(test_clean_press_gives_one_tap_on_release);
+    RUN_TEST(test_tap_fires_on_press_before_release);
+    RUN_TEST(test_quick_two_sample_tap_is_accepted);
+    RUN_TEST(test_clean_press_gives_one_tap);
     RUN_TEST(test_single_sample_spike_is_ignored);
     RUN_TEST(test_pressure_dropout_while_held_is_one_tap);
     RUN_TEST(test_first_contact_sample_and_outliers_do_not_move_tap);
     RUN_TEST(test_press_right_after_tap_is_locked_out);
-    RUN_TEST(test_long_hold_is_not_a_tap);
+    RUN_TEST(test_long_hold_is_one_tap);
     RUN_TEST(test_default_calibration_matches_previous_mapping);
     RUN_TEST(test_map_clamps_to_screen);
     RUN_TEST(test_calibrator_detects_swapped_axes);

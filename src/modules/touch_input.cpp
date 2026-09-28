@@ -30,7 +30,7 @@ void TouchTracker::add(const TouchRawSample &s) {
 }
 
 bool TouchTracker::current(int16_t &raw_x, int16_t &raw_y) const {
-    if (state_ != State::Down || n_ == 0) return false;
+    if ((state_ != State::Down && state_ != State::Releasing) || n_ == 0) return false;
     raw_x = median(xs_, n_);
     raw_y = median(ys_, n_);
     return true;
@@ -45,13 +45,20 @@ TouchTap TouchTracker::feed(const TouchRawSample &s, uint32_t now) {
         confirm_count_ = 1;
         n_ = 0;
         skipped_ = 0;
-        press_ms_ = now;
         add(s);
         break;
     case State::Confirming:
         if (!s.pressed) { state_ = State::Idle; break; }
         add(s);
-        if (++confirm_count_ >= PRESS_CONFIRM_SAMPLES) state_ = State::Down;
+        if (++confirm_count_ < PRESS_CONFIRM_SAMPLES) break;
+        // Fire on press so the UI reacts immediately; the release debounce
+        // below only keeps one physical press from producing a second tap.
+        state_ = State::Down;
+        if (n_ > 0) {
+            tap.valid = true;
+            tap.raw_x = median(xs_, n_);
+            tap.raw_y = median(ys_, n_);
+        }
         break;
     case State::Down:
         if (s.pressed) { add(s); break; }
@@ -62,11 +69,6 @@ TouchTap TouchTracker::feed(const TouchRawSample &s, uint32_t now) {
     case State::Releasing:
         if (s.pressed) { state_ = State::Down; add(s); break; }
         if (++release_count_ < RELEASE_SAMPLES || now - release_ms_ < RELEASE_MS) break;
-        if (n_ > 0 && release_ms_ - press_ms_ <= MAX_TAP_MS) {
-            tap.valid = true;
-            tap.raw_x = median(xs_, n_);
-            tap.raw_y = median(ys_, n_);
-        }
         state_ = State::Idle;
         lockout_until_ms_ = now + LOCKOUT_MS;
         break;

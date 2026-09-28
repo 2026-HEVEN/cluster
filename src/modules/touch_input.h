@@ -16,7 +16,8 @@ struct TouchTap {
     int16_t raw_x = 0, raw_y = 0;   // median of the press, controller axes
 };
 
-// Press/release debounce. A tap is reported once per physical press, on release.
+// Press/release debounce. A tap is reported once per physical press, as soon as
+// the press is confirmed.
 class TouchTracker {
 public:
     static constexpr int MAX_SAMPLES = 32;
@@ -24,8 +25,7 @@ public:
     static constexpr int SKIP_EDGE_SAMPLES = 1;       // first contact sample is least accurate
     static constexpr uint32_t RELEASE_MS = 60;        // pressure must stay low this long
     static constexpr int RELEASE_SAMPLES = 2;
-    static constexpr uint32_t MAX_TAP_MS = 2000;      // longer holds are ignored
-    static constexpr uint32_t LOCKOUT_MS = 250;       // after a tap, before the next press
+    static constexpr uint32_t LOCKOUT_MS = 120;       // after a release, before the next press
 
     TouchTap feed(const TouchRawSample &s, uint32_t now);
     bool pressed() const { return state_ == State::Down; }
@@ -39,7 +39,6 @@ private:
     int confirm_count_ = 0;
     int release_count_ = 0;
     int skipped_ = 0;
-    uint32_t press_ms_ = 0;
     uint32_t release_ms_ = 0;
     uint32_t lockout_until_ms_ = 0;
     int16_t xs_[MAX_SAMPLES]{}, ys_[MAX_SAMPLES]{};

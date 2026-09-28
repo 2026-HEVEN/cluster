@@ -20,10 +20,13 @@
 #include "modules/widgets/widget_laptime.h"
 #include "modules/vess.h"
 #include "core/check_snapshot.h"
+#include "modules/touch_input.h"
 #include <algorithm>
 #include <Arduino.h>
 #include <XPT2046_Touchscreen.h>
+#include <Preferences.h>
 #include <cstdio>
+#include <cstring>
 
 // [LOCKED] The ONLY translation unit that touches `state`.
 ClusterState state;
@@ -56,20 +59,29 @@ namespace {
     constexpr float WHEEL_DIAMETER_M = 0.4597f;
     constexpr float MOTOR_TO_WHEEL_RATIO = 3.72f;
     constexpr float PI_F = 3.14159265f;
-    // Raw calibration bounds need a four-corner check on the physical LCD.
-    constexpr int TOUCH_MIN = 200, TOUCH_MAX = 3900;
     FrameBuffer fb;
     CheckUi check_ui;
     bool ui_warning = false;
-    int touch_start_x = 0, touch_start_y = 0, touch_last_x = 0;
-    bool touch_dragged = false;
-    bool status_touch_down = false;
     bool page_button_raw_down = false;
     bool page_button_stable_down = false;
     uint32_t page_button_changed_ms = 0;
-    uint32_t status_touch_last_ms = 0;
+    bool page_button_long_fired = false;
+    constexpr uint32_t HOME_LONG_PRESS_MS = 3000;   // hold HOME to start touch calibration
     constexpr uint32_t GPS_LAP_DOUBLE_CLICK_MS = 320;
     XPT2046_Touchscreen touch(board_pins::TOUCH_CS);
+    constexpr int16_t TOUCH_PRESS_Z = 400;          // library already reports 0 below 400
+    constexpr uint32_t TOUCH_CAL_VERSION = 1;
+    constexpr uint32_t TOUCH_STATUS_MS = 2000;
+    TouchTracker touch_tracker;
+    TouchCalibration touch_cal;
+    TouchCalibrator touch_calibrator;
+    const char *touch_cal_status = nullptr;
+    char touch_cal_status_buf[40];
+    uint32_t touch_cal_status_until_ms = 0;
+    bool touch_debug = false;                        // serial "touch": log raw + show cursor
+    uint32_t touch_debug_log_ms = 0;
+    char serial_line[32];
+    size_t serial_line_len = 0;
     bool gps_lap_start_button_down = false;
     uint32_t gps_lap_start_button_last_ms = 0;
     bool gps_lap_start_single_pending = false;
@@ -272,6 +284,9 @@ namespace {
         for (int i = 0; i < count; ++i) snapshot.warnings[i] = labels[i];
     }
 
+    void touch_set_status(const char *s);
+    void touch_calibration_start();
+
     void page_button_update() {
         const uint32_t now = millis();
         const bool down = digitalRead(board_pins::HOME_BUTTON) == LOW;
@@ -281,30 +296,136 @@ namespace {
         }
         if (down != page_button_stable_down && now - page_button_changed_ms >= 50) {
             page_button_stable_down = down;
-            if (down) check_ui.home();
+            page_button_long_fired = false;
+            if (down) {
+                if (touch_calibrator.active()) {
+                    touch_calibrator.cancel();
+                    touch_set_status("CANCELLED - KEEPING OLD CAL");
+                }
+                check_ui.home();
+            }
+        }
+        if (page_button_stable_down && !page_button_long_fired &&
+            now - page_button_changed_ms >= HOME_LONG_PRESS_MS) {
+            page_button_long_fired = true;
+            touch_calibration_start();
         }
     }
 
-    void status_touch_update() {
-        const bool down = touch.touched();
-        const uint32_t now = millis();
-        if (down) {
-            TS_Point p = touch.getPoint();
-            const int x = std::max(0, std::min(319, (TOUCH_MAX-p.x)*319/(TOUCH_MAX-TOUCH_MIN)));
-            const int y = std::max(0, std::min(239, (p.y-TOUCH_MIN)*239/(TOUCH_MAX-TOUCH_MIN)));
-            if (!status_touch_down) {
-                status_touch_down = true;
-                touch_start_x = touch_last_x = x; touch_start_y = y;
-                touch_dragged = false;
-                status_touch_last_ms = now;
-            } else {
-                if (abs(x-touch_start_x)>10 || abs(y-touch_start_y)>10) touch_dragged = true;
-                touch_last_x = x;
+    void touch_set_status(const char *s) {
+        std::snprintf(touch_cal_status_buf, sizeof(touch_cal_status_buf), "%s", s);
+        touch_cal_status = touch_cal_status_buf;
+        touch_cal_status_until_ms = millis() + TOUCH_STATUS_MS;
+        Serial.printf("[TOUCH] %s\n", s);
+    }
+
+    void touch_calibration_start() {
+        touch_calibrator.start();
+        touch_tracker.reset();
+        touch_cal_status = nullptr;
+        Serial.println("[TOUCH] calibration started");
+    }
+
+    void touch_calibration_print(const char *label, const TouchCalibration &c) {
+        Serial.printf("[TOUCH] %s swap=%d ax=%d..%d ay=%d..%d\n", label, c.swap_xy ? 1 : 0,
+                      c.ax0, c.ax1, c.ay0, c.ay1);
+    }
+
+    void touch_calibration_load() {
+        Preferences prefs;
+        TouchCalibration c;
+        if (prefs.begin("touch", true)) {
+            const bool ok = prefs.getUInt("ver", 0) == TOUCH_CAL_VERSION &&
+                            prefs.getBytes("cal", &c, sizeof(c)) == sizeof(c) &&
+                            touch_calibration_plausible(c);
+            prefs.end();
+            if (ok) { touch_cal = c; touch_calibration_print("loaded", c); return; }
+        }
+        touch_calibration_print("default (not calibrated)", touch_cal);
+    }
+
+    void touch_calibration_save(const TouchCalibration *c) {
+        Preferences prefs;
+        if (!prefs.begin("touch", false)) return;
+        if (c) {
+            prefs.putBytes("cal", c, sizeof(*c));
+            prefs.putUInt("ver", TOUCH_CAL_VERSION);
+        } else {
+            prefs.clear();
+        }
+        prefs.end();
+    }
+
+    void touch_on_tap(const TouchTap &tap) {
+        if (touch_calibrator.active()) {
+            Serial.printf("[TOUCH] cal point %d raw=(%d,%d)\n", touch_calibrator.step() + 1,
+                          tap.raw_x, tap.raw_y);
+            const TouchCalibrator::Result r = touch_calibrator.tap(tap.raw_x, tap.raw_y);
+            char b[40];
+            if (r == TouchCalibrator::Result::Done) {
+                touch_cal = touch_calibrator.result();
+                touch_calibration_save(&touch_cal);
+                touch_calibration_print("saved", touch_cal);
+                std::snprintf(b, sizeof(b), "SAVED  CENTRE ERR %d PX", touch_calibrator.check_error_px());
+                touch_set_status(b);
+            } else if (r == TouchCalibrator::Result::Failed) {
+                std::snprintf(b, sizeof(b), "FAILED (ERR %d PX) - RETRY", touch_calibrator.check_error_px());
+                touch_calibrator.start();
+                touch_cal_status = nullptr;
+                touch_set_status(b);
+                touch_cal_status_until_ms = 0x7FFFFFFF;   // keep the hint until the next attempt ends
             }
-        } else if (status_touch_down) {
-            status_touch_down = false;
-            if (!touch_dragged && now-status_touch_last_ms>=40) {
-                check_ui.tap(touch_start_x,touch_start_y,ui_warning);
+            return;
+        }
+        int x, y;
+        touch_map(touch_cal, tap.raw_x, tap.raw_y, x, y);
+        Serial.printf("[TOUCH] tap raw=(%d,%d) screen=(%d,%d) page=%d\n", tap.raw_x, tap.raw_y,
+                      x, y, static_cast<int>(check_ui.page));
+        check_ui.tap(x, y, ui_warning);
+    }
+
+    void touch_update() {
+        const uint32_t now = millis();
+        const TS_Point p = touch.getPoint();
+        const TouchRawSample s{p.z >= TOUCH_PRESS_Z, p.x, p.y};
+        if (touch_debug && s.pressed && now - touch_debug_log_ms >= 50) {
+            touch_debug_log_ms = now;
+            int x, y;
+            touch_map(touch_cal, p.x, p.y, x, y);
+            Serial.printf("[TOUCH] raw=(%d,%d) z=%d screen=(%d,%d)\n", p.x, p.y, p.z, x, y);
+        }
+        const TouchTap tap = touch_tracker.feed(s, now);
+        if (tap.valid) touch_on_tap(tap);
+    }
+
+    // Serial console: "cal" start calibration, "caldef" erase saved calibration,
+    // "touch" toggle raw logging + on-screen cursor, "calshow" print calibration.
+    void serial_command(const char *cmd) {
+        if (!std::strcmp(cmd, "cal")) {
+            touch_calibration_start();
+        } else if (!std::strcmp(cmd, "caldef")) {
+            touch_cal = TouchCalibration{};
+            touch_calibration_save(nullptr);
+            touch_calibration_print("reset to default", touch_cal);
+        } else if (!std::strcmp(cmd, "touch")) {
+            touch_debug = !touch_debug;
+            Serial.printf("[TOUCH] debug %s\n", touch_debug ? "on" : "off");
+        } else if (!std::strcmp(cmd, "calshow")) {
+            touch_calibration_print("current", touch_cal);
+        } else if (cmd[0]) {
+            Serial.println("[CMD] cal | caldef | calshow | touch");
+        }
+    }
+
+    void serial_update() {
+        while (Serial.available() > 0) {
+            const char c = static_cast<char>(Serial.read());
+            if (c == '\r' || c == '\n') {
+                serial_line[serial_line_len] = '\0';
+                serial_command(serial_line);
+                serial_line_len = 0;
+            } else if (serial_line_len + 1 < sizeof(serial_line)) {
+                serial_line[serial_line_len++] = c;
             }
         }
     }
@@ -407,7 +528,6 @@ static void hmi_update() {
     gps_fix_feedback_update();
     gps_lap_start_update();
     page_button_update();
-    status_touch_update();
 
     const uint32_t now = millis();
     HmiSwitches sw;
@@ -518,6 +638,13 @@ static void diagnostics_update() {
 }
 static void display_update() {
     fb.clear();
+    const uint32_t now_ms = millis();
+    if (touch_cal_status && (int32_t)(now_ms - touch_cal_status_until_ms) >= 0) touch_cal_status = nullptr;
+    if (touch_calibrator.active() || touch_cal_status) {
+        touch_calibration_draw(fb, touch_calibrator, touch_cal_status);
+        display_blit::show(fb, false);
+        return;
+    }
     if (state.drivetrain_warning_sequence != drivetrain_warning_sequence_seen) {
         drivetrain_warning_sequence_seen = state.drivetrain_warning_sequence;
         check_ui.page = CheckPage::Warning;
@@ -535,6 +662,12 @@ static void display_update() {
         check_home_draw(fb, check_home_snapshot(millis()), warn);
     }
     draw_lap_notice(millis());
+    int16_t cur_x, cur_y;
+    if (touch_debug && touch_tracker.current(cur_x, cur_y)) {
+        int x, y;
+        touch_map(touch_cal, cur_x, cur_y, x, y);
+        touch_marker_draw(fb, x, y);
+    }
     display_blit::show(fb, warn);
 }
 
@@ -549,6 +682,8 @@ Task g_tasks[] = {
     { lap_can_tx_update, 200, 0 },          // 5 Hz lap telemetry
     { start_input_update, 5, 0 },           // 200 Hz PCB V3 START presence monitor
     { hmi_update,     20, 0 },   // 50 Hz
+    { touch_update,   10, 0 },   // 100 Hz XPT2046 poll (debounce needs several samples per press)
+    { serial_update,  50, 0 },   // 20 Hz serial console (touch calibration commands)
     { vess_update,    20, 0 },   // 50 Hz VESS throttle-to-PWM output
     { diagnostics_update, 20, 0 }, // observe validity/edges; numeric history sampled at 2 Hz
     { display_update, 50, 0 },   // 20 Hz target; independent of history sampling
@@ -563,7 +698,8 @@ void modules_init() {
     display_blit::begin();
     display_update();
     touch.begin();
-    touch.setRotation(1);
+    touch.setRotation(1);   // library rotation 1 = controller axes unchanged; mapping is in touch_cal
+    touch_calibration_load();
     pinMode(board_pins::VESS_PWM, OUTPUT);
     digitalWrite(board_pins::VESS_PWM, HIGH);
     ledcSetup(VESS_PWM_CHANNEL, VESS_MIN_FREQUENCY_HZ, VESS_PWM_RESOLUTION_BITS);

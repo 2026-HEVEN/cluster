@@ -77,6 +77,7 @@
 | VCU → Cluster/TMA-1 | 단일 차량속도 | `0x1803C0D0` (신규) | — | 50ms | 6 |
 | Cluster → TMA-1/logger | BMS 상태 요약 | `0x18F3FFC0` (신규) | — | 100ms | 6 |
 | Cluster → TMA-1/logger | BMS 상세 요약 | `0x18F4FFC0` (신규) | — | 100ms | 6 |
+| Cluster → TMA-1/logger | GNSS Ground Speed + RTK 품질 | `0x18F9FFC0` (신규) | — | 새 RMC마다 | 6 |
 
 > ID에서 PS(목적지)·SA(송신)만 컨트롤러별로 바뀜. 위 표의 ID는 `PF<<16 | PS<<8 | SA`로 조립됨(+ Priority).
 
@@ -174,7 +175,7 @@
 > 회생제동은 PCB V3 로터리 스위치 GPIO36(bit0), GPIO39(bit1)의 active-low 입력으로 결정한다. 두 핀 모두 입력 전용이므로 외부 풀업을 사용한다. 0단은 OFF, 1~3단은 ON이며 부팅 시에도 실제 스위치 위치를 따른다. RGN은 Car Check에서 ON/OFF 요청 상태로 표시하며 기본 화면에서는 표시하지 않는다.
 > PCB V3 배선: TV GPIO32, Paddock GPIO33, HOME GPIO19, GPS LAP GPIO5, VESS PWM GPIO4이다. HOME은 Cluster 내부 기능으로 CAN 요청을 보내지 않는다.
 > VCU/토크벡터링팀 인계: TV 스위치 요청은 기존 0x1801D0C0 Byte1 bit0을 그대로 사용하며 VCU에서 실제 적용 여부를 확인해야 한다. 회생제동 요청은 동일 프레임 Byte1 bit1로 0단=0, 1~3단=1을 송신한다(강도 3단계 구분 없음).
-> VESS는 CAN 커맨드에 싣지 않는다. Cluster GPIO4는 중간 반전 회로를 위해 active-low 50Hz PWM을 출력한다. GPIO4의 Low 폭이 1~2ms이고, 반전 후 ESS-DUAL+ RX-TH에는 같은 폭의 High 펄스가 전달되어야 한다. 현재 구현은 VCU throttle feedback을 우선 사용하고, 없으면 모터 target current/차량속도 순서로 fallback한다.
+> VESS는 CAN 커맨드에 싣지 않는다. Cluster GPIO4는 PCB V3의 단일 반전 MOSFET 앞에서 50Hz PWM을 출력한다. GPIO4의 Low 폭은 1~2ms이며 반전 후 RX-TH에는 같은 폭의 High 펄스가 전달된다. 현재 구현은 VCU throttle feedback을 우선 사용하고, 없으면 모터 target current/차량속도 순서로 fallback하며 출력 펄스폭을 결정한다.
 
 ### EM Gateway 전압 표시 (2026-09-07)
 
@@ -248,6 +249,28 @@
 | 4~5 | Cycle count | 1 cycle/bit, little-endian |
 | 6 | Reserved | 0 |
 | 7 | Life signal | 0~255 |
+
+### 5.12 Cluster → TMA-1/logger : GNSS Ground Speed `0x18F9FFC0` (HEVEN 정의) · RMC event-driven
+
+> ZED-F9P의 유효한 NMEA RMC 문장에서 Speed Over Ground를 읽어 `knot × 1.852`로 km/h로 변환한다. Cluster가 위·경도 차분으로 속도를 다시 계산하는 방식이 아니다.
+> 새 RMC 문장을 처리할 때마다 한 번 송신하므로 송신률은 ZED-F9P의 RMC 출력률을 따른다. 현재 약 5 Hz이며 펌웨어에 5 Hz로 고정하지 않는다.
+> GNSS, RTK FLOAT, RTK FIXED 상태에서 모두 송신하며 status flags로 당시 위치해 품질을 함께 기록한다. `speed valid=0`이면 Byte0~1의 0을 실제 정지 속도로 해석하지 않는다.
+
+| 바이트 | 항목 | 분해능/의미 |
+|--------|------|-------------|
+| 0~1 | GNSS ground speed | uint16 little-endian, 0.01 km/h/bit |
+| 2 bit0 | RMC fresh | 마지막 RMC가 3초 이내이면 1 |
+| 2 bit1 | GPS fix valid | 최신 RMC status가 Active이고 fresh이면 1 |
+| 2 bit2 | RTK FLOAT | GGA fix quality=5이면 1 |
+| 2 bit3 | RTK FIXED | GGA fix quality=4이면 1 |
+| 2 bit4 | Speed valid | RMC 속도 필드가 유효하고 GPS fix가 유효하면 1 |
+| 2 bit5~7 | Reserved | 0 |
+| 3 | GGA fix quality | NMEA GGA 원본 quality 값 |
+| 4~5 | RMC age | uint16 little-endian, 0.1 s/bit, 미수신/포화=`0xFFFF` |
+| 6 | Reserved | 0 |
+| 7 | Life counter | 프레임 송신마다 1 증가, uint8 wraparound |
+
+Monolith에서 실제 속도 채널은 Byte0~1에 multiplier `0.01`, offset `0`, unsigned, little-endian을 적용한다. 데이터 품질 확인용 bit decoder를 별도로 추가하고, 분석 시 `Speed Valid=1`인 구간을 사용한다. RTK 기반 구간만 보려면 `RTK FIXED=1`을 추가 조건으로 사용한다.
 
 ---
 

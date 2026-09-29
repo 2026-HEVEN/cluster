@@ -3,6 +3,14 @@
 #include <cstdio>
 
 void diagnostic_graph(FrameBuffer&,CheckUi&,const DiagnosticHistory&,const TelemetryValues&,uint32_t);
+namespace {
+struct HitRect { int left,top,right,bottom; };
+constexpr HitRect HOME_WSS_TOUCH{0,0,261,112};
+constexpr HitRect HOME_POWER_TOUCH{0,138,276,184};
+bool contains(const HitRect &r,int x,int y) {
+    return x>=r.left && x<r.right && y>=r.top && y<r.bottom;
+}
+}
 bool check_graph_for_row(CheckPage page,int row,GraphKind &kind) {
     if(page==CheckPage::Motor) {
         if(row==1) {kind=GraphKind::MotorV;return true;}
@@ -34,8 +42,8 @@ void CheckUi::tap(int x,int y,bool warning) {
         list_page=0; return;
     }
     if(page==CheckPage::Home) {
-        if(x<270 && y<108) open_graph(GraphKind::Wss);
-        else if(x>=68 && x<272 && y>=140 && y<182) open_graph(GraphKind::EmA);
+        if(contains(HOME_WSS_TOUCH,x,y)) open_graph(GraphKind::Wss);
+        else if(contains(HOME_POWER_TOUCH,x,y)) open_graph(GraphKind::EmA);
         else page=warning?CheckPage::Warning:CheckPage::Menu;
         return;
     }
@@ -54,9 +62,9 @@ void CheckUi::tap(int x,int y,bool warning) {
     if(y>=220) { links_origin=page; page=CheckPage::Links; list_page=0; return; }
     if(page==CheckPage::Menu && y>=40) {
         page=y<130?(x<160?CheckPage::Motor:CheckPage::Power):(x<160?CheckPage::Vcu:CheckPage::Gps);
-    } else if(page==CheckPage::Motor && y>=62) {
+    } else if(page==CheckPage::Motor && y>=58) {
         GraphKind kind;
-        if(check_graph_for_row(page,(y-62)/17,kind)) open_graph(kind);
+        if(check_graph_for_row(page,(y-58)/15,kind)) open_graph(kind);
     } else if(y>=43) {
         int r=(y-43)/14;
         GraphKind kind;
@@ -110,8 +118,8 @@ void check_draw(FrameBuffer &f,CheckUi &ui,const CheckSnapshot &d,const Diagnost
         } footer(f);
     } else if(ui.page==CheckPage::Motor) {
         header(f,"MOTOR");fb_text(f,112,45,"LEFT ...",1);fb_text(f,216,45,"RIGHT ___",1);
-        for(int i=0;i<9;++i) for(int j=0;j<3;++j) fb_text(f,j==0?8:j==1?112:216,64+i*17,d.motor[i][j],1);
-        for(int i=0;i<9;++i) {GraphKind kind;if(check_graph_for_row(ui.page,i,kind)) fb_text(f,1,64+i*17,"*",1);}
+        for(int i=0;i<10;++i) for(int j=0;j<3;++j) fb_text(f,j==0?8:j==1?112:216,58+i*15,d.motor[i][j],1);
+        for(int i=0;i<10;++i) {GraphKind kind;if(check_graph_for_row(ui.page,i,kind)) fb_text(f,1,58+i*15,"*",1);}
         footer(f);
     } else if(ui.page==CheckPage::Power) {header(f,"POWER");rows(f,d.power,ui.page);footer(f);}
     else if(ui.page==CheckPage::Vcu) {header(f,"VCU / SENSOR");rows(f,d.vcu,ui.page);footer(f);}
@@ -129,7 +137,7 @@ void check_draw(FrameBuffer &f,CheckUi &ui,const CheckSnapshot &d,const Diagnost
         for(unsigned i=0;i<6;++i) {
             unsigned n=ui.list_page*6+i;if(n>=h.event_count()) break;
             const auto &e=h.event(n);char t[20];uptime(t,sizeof(t),e.ms);
-            const char *kind=e.kind==EventKind::Connected?"UP":e.kind==EventKind::Lost?"LOST":e.kind==EventKind::Restored?"RESTORED":e.kind==EventKind::FaultOn?"FAULT":"CLEARED";
+            const char *kind=e.kind==EventKind::Connected?"UP":e.kind==EventKind::Lost?"LOST":e.kind==EventKind::Restored?"RESTORED":e.kind==EventKind::FaultOn?"FAULT":e.kind==EventKind::FaultOff?"CLEARED":e.kind==EventKind::DriveDropout?"RPM DROP":"RPM DIVERGE";
             std::snprintf(b,sizeof(b),"%s %s %s",t,diagnostic_link_name(e.node),kind);fb_text(f,8,58+i*26,b,1);
             if(e.kind==EventKind::FaultOn||e.kind==EventKind::FaultOff) fb_text(f,20,69+i*26,diagnostic_fault_name(e.bit),1);
         } if(!h.event_count()) fb_text(f,8,85,"NO EVENTS",2);footer(f,"NEXT >");

@@ -17,6 +17,7 @@ void test_cluster_gnss_lap_ids(void) {
     TEST_ASSERT_EQUAL_HEX32(0x18F6FFC0, CAN_ID_CLUSTER_GNSS_RTK_STATUS);
     TEST_ASSERT_EQUAL_HEX32(0x18F7FFC0, CAN_ID_CLUSTER_LAP_TIME);
     TEST_ASSERT_EQUAL_HEX32(0x18F8FFC0, CAN_ID_CLUSTER_LAP_STATUS);
+    TEST_ASSERT_EQUAL_HEX32(0x18F9FFC0, CAN_ID_CLUSTER_GNSS_SPEED);
 }
 void test_feedback_ids(void) {
     TEST_ASSERT_EQUAL_HEX32(0x1801D0EF, CAN_ID_FB1_L);
@@ -45,13 +46,13 @@ void test_decode_vcu_vehicle_speed_valid(void) {
     TEST_ASSERT_TRUE(valid);
     TEST_ASSERT_FLOAT_WITHIN(0.01f, 100.0f, kph);
 }
-void test_decode_vcu_vehicle_speed_invalid_clears_value(void) {
+void test_decode_vcu_vehicle_speed_invalid_keeps_value(void) {
     uint8_t d[8] = {0xE8, 0x03, 0, 0, 0, 0, 0, 0};
     float kph = -1.0f;
     bool valid = true;
     decode_vcu_vehicle_speed(d, kph, valid);
     TEST_ASSERT_FALSE(valid);
-    TEST_ASSERT_FLOAT_WITHIN(0.01f, 0.0f, kph);
+    TEST_ASSERT_FLOAT_WITHIN(0.01f, 100.0f, kph);
 }
 void test_decode_vcu_vehicle_speed_zero_valid(void) {
     uint8_t d[8] = {0x00, 0x00, 1, 0, 0, 0, 0, 0};
@@ -116,7 +117,12 @@ void test_encode_regen_level_as_vcu_boolean(void) {
     encode_cluster_command({false, false, 3, false}, out);
     TEST_ASSERT_EQUAL_UINT8(0x02, out[1] & 0x06);
     encode_cluster_command({false, false, 9, false}, out);
-    TEST_ASSERT_EQUAL_UINT8(0x02, out[1] & 0x06);
+    TEST_ASSERT_EQUAL_UINT8(0, out[1] & 0x06);
+    TEST_ASSERT_EQUAL_UINT8(0xA0, out[3]);
+    for (uint8_t i=0;i<4;++i) {
+        encode_cluster_command({false,false,i,false},out);
+        TEST_ASSERT_EQUAL_UINT8(0xA0|i,out[3]);
+    }
 }
 void test_ezkontrol_handshake_probe_detection(void) {
     uint8_t probe[8] = {0x55, 0x55, 0x55, 0x55, 0x55, 0x55, 0x55, 0x55};
@@ -212,6 +218,53 @@ void test_encode_cluster_gnss_rtk_status(void) {
     TEST_ASSERT_EQUAL_UINT8(37, out[6]);
     TEST_ASSERT_EQUAL_UINT8(0, out[7]);
 }
+void test_encode_cluster_gnss_speed(void) {
+    uint8_t out[8];
+    ClusterGnssSpeed speed;
+    speed.speed_kph = 123.45f;
+    speed.rmc_fresh = true;
+    speed.gps_fix_valid = true;
+    speed.speed_valid = true;
+    speed.rtk_state = 2;
+    speed.fix_quality = 4;
+    speed.rmc_age_dsec = 3;
+    speed.life = 0x5A;
+    encode_cluster_gnss_speed(speed, out);
+
+    TEST_ASSERT_EQUAL_UINT8(0x39, out[0]);
+    TEST_ASSERT_EQUAL_UINT8(0x30, out[1]);
+    TEST_ASSERT_EQUAL_UINT8(0x1B, out[2]);
+    TEST_ASSERT_EQUAL_UINT8(4, out[3]);
+    TEST_ASSERT_EQUAL_UINT8(3, out[4]);
+    TEST_ASSERT_EQUAL_UINT8(0, out[5]);
+    TEST_ASSERT_EQUAL_UINT8(0, out[6]);
+    TEST_ASSERT_EQUAL_UINT8(0x5A, out[7]);
+}
+void test_encode_cluster_gnss_speed_invalid_clears_value(void) {
+    uint8_t out[8];
+    ClusterGnssSpeed speed;
+    speed.speed_kph = 99.0f;
+    speed.rmc_fresh = true;
+    speed.gps_fix_valid = false;
+    speed.speed_valid = false;
+    speed.rmc_age_dsec = 0xFFFF;
+    encode_cluster_gnss_speed(speed, out);
+
+    TEST_ASSERT_EQUAL_UINT8(0, out[0]);
+    TEST_ASSERT_EQUAL_UINT8(0, out[1]);
+    TEST_ASSERT_EQUAL_UINT8(0x01, out[2]);
+    TEST_ASSERT_EQUAL_UINT8(0xFF, out[4]);
+    TEST_ASSERT_EQUAL_UINT8(0xFF, out[5]);
+}
+void test_encode_cluster_gnss_speed_saturates(void) {
+    uint8_t out[8];
+    ClusterGnssSpeed speed;
+    speed.speed_kph = 1000.0f;
+    speed.speed_valid = true;
+    encode_cluster_gnss_speed(speed, out);
+    TEST_ASSERT_EQUAL_UINT8(0xFF, out[0]);
+    TEST_ASSERT_EQUAL_UINT8(0xFF, out[1]);
+}
 void test_encode_cluster_lap_time(void) {
     uint8_t out[8];
     encode_cluster_lap_time(123456, 654321, out);
@@ -274,7 +327,7 @@ int main(int, char **) {
     RUN_TEST(test_decode_temp);
     RUN_TEST(test_decode_speed);
     RUN_TEST(test_decode_vcu_vehicle_speed_valid);
-    RUN_TEST(test_decode_vcu_vehicle_speed_invalid_clears_value);
+    RUN_TEST(test_decode_vcu_vehicle_speed_invalid_keeps_value);
     RUN_TEST(test_decode_vcu_vehicle_speed_zero_valid);
     RUN_TEST(test_decode_vcu_vehicle_speed_max_value);
     RUN_TEST(test_decode_vcu_cluster_status_paddock_feedback);
@@ -288,6 +341,9 @@ int main(int, char **) {
     RUN_TEST(test_encode_cluster_bms_detail);
     RUN_TEST(test_encode_cluster_gnss_position);
     RUN_TEST(test_encode_cluster_gnss_rtk_status);
+    RUN_TEST(test_encode_cluster_gnss_speed);
+    RUN_TEST(test_encode_cluster_gnss_speed_invalid_clears_value);
+    RUN_TEST(test_encode_cluster_gnss_speed_saturates);
     RUN_TEST(test_encode_cluster_lap_time);
     RUN_TEST(test_encode_cluster_lap_status);
     return UNITY_END();

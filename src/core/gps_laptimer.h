@@ -16,6 +16,7 @@ uint32_t last_nmea_ms();
 uint32_t last_pps_ms();
 uint32_t pps_count();
 uint32_t position_sequence();
+uint32_t speed_sequence();
 bool timer_running();
 bool timer_paused();
 uint8_t current_lap_number();

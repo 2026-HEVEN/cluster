@@ -52,11 +52,11 @@ pio run -e esp32dev -t upload
 | LCD / Touch SPI | MOSI / SCK / MISO | GPIO17 / 18 / 35 | 공용 SPI |
 | LCD Touch XPT2046 | T_CS | GPIO16 | Touch chip select |
 | GPS ZED-F9P | RX / TX / PPS | GPIO25 / 26 / 27 | 115200 baud NMEA/UBX, RTCM3 및 PPS |
-| VESS | PWM | GPIO4 | 중간 반전 회로 전단의 active-low 50Hz PWM. 반전 후 ESS-DUAL+ RX-TH에는 1~2ms High 펄스가 전달되어야 함 |
-| HMI | TV | GPIO32 | 토글 스위치, INPUT_PULLUP, ON=LOW |
-| HMI | Paddock | GPIO33 | 토글 스위치, INPUT_PULLUP, ON=LOW |
-| HMI | HOME | GPIO19 | 순간 푸시 버튼, INPUT_PULLUP, ON=LOW |
-| HMI | GPS Lap | GPIO5 | 순간 푸시 버튼, INPUT_PULLUP, ON=LOW |
+| VESS | PWM | GPIO4 | 반전 MOSFET 구동, 50Hz 고정. 외부 RX-TH에는 1~2ms High 펄스 출력 |
+| HMI | TV | GPIO32 | 토글 스위치, PCB 외부 10k 풀업, ON=LOW |
+| HMI | Paddock | GPIO33 | 토글 스위치, PCB 외부 10k 풀업, ON=LOW |
+| HMI | HOME | GPIO19 | 순간 푸시 버튼, PCB 외부 10k 풀업, ON=LOW |
+| HMI | GPS Lap | GPIO5 | 순간 푸시 버튼, PCB 외부 10k 풀업, ON=LOW |
 | HMI | Regen bit0 / bit1 | GPIO36 / 39 | 로터리, ON=LOW, 두 핀 모두 외부 풀업 필요 |
 | Sense | START_IN | GPIO34 | 시동 전원 감지 ADC. 버튼 출력 핀이 아님 |
 
@@ -66,11 +66,13 @@ Cluster는 부팅 시 ZED-F9P UART1/UART2가 460800 baud로 설정되어 있더�
 
 RTK 사용 시 Cluster ESP32가 Wi-Fi로 NTRIP caster에 접속하고, 수신한 RTCM3 바이트를 가공 없이 `GPIO26` UART TX로 ZED-F9P RX2에 전달한다. 실제 Wi-Fi/NTRIP 계정정보는 `include/ntrip_secrets.h`에 넣고 Git에는 올리지 않는다. `include/ntrip_secrets.example.h`를 복사해서 사용한다.
 
+Cluster는 ZED-F9P RMC의 Speed Over Ground를 km/h로 변환해 새 RMC마다 Extended CAN `0x18F9FFC0`으로 송신한다. 속도는 0.01 km/h/bit이며 같은 프레임에 RMC fresh, GPS fix, RTK FLOAT/FIXED, speed valid, GGA quality와 RMC age를 포함한다. 상세 byte layout은 `docs/CAN_PROTOCOL.md`를 따른다.
+
 회생제동 입력은 GPIO36/39 두 비트 로터리다. 0단은 OFF, 1~3단은 모두 같은 ON 요청으로 인코딩한다. 실제 회생 가능 여부와 전류 제한은 VCU가 최종 판단한다.
 
 GPIO15는 현재 펌웨어에서 사용하지 않는다. GPIO15는 strapping pin이므로 외부 회로가 부팅 순간 강하게 잡아당기지 않게 주의한다.
 
-GPIO34는 PCB V3의 START_IN 전원 감지 ADC다. 현재는 입력으로만 설정하며 제어에는 사용하지 않는다. 기어는 VCU에서 읽는다.
+GPIO34는 PCB V3의 START_IN 전원 감지 ADC다. 5ms마다 분압된 핀 전압을 읽고, 1.5V 이상에서 ON, 1.0V 이하에서 OFF로 판정하며 20ms 디바운스를 적용한다. 이 값은 Car Check의 VCU/SENSOR 상세 화면에 표시할 뿐 차량 제어에는 사용하지 않는다. 기어는 VCU에서 읽는다.
 ## 어디서 작업하나
 
 | 폴더 | 내용 | 편집? |

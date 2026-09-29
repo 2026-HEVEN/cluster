@@ -11,6 +11,7 @@
 #include "core/gps_laptimer.h"
 #include "core/ntrip.h"
 #include "core/board_pins.h"
+#include "modules/drivetrain_monitor.h"
 
 namespace can_bus {
 
@@ -33,6 +34,7 @@ namespace {
     constexpr uint32_t BMS_CAN_STALE_MS = 5000;
     constexpr uint32_t GPS_CAN_STALE_MS = 3000;
     constexpr uint32_t RTCM_CAN_FRESH_MS = 5000;
+    DrivetrainMonitor drivetrain_monitor;
 
     float absf(float v) { return v < 0.0f ? -v : v; }
 
@@ -46,6 +48,24 @@ namespace {
         } else if (state.controller_r_seen) {
             state.speed_rpm = right;
         }
+    }
+
+    void update_drivetrain_monitor(DrivetrainSide side, float rpm, uint32_t now) {
+        const DrivetrainMonitorEvent event =
+            drivetrain_monitor.receive(side, static_cast<int>(rpm), now);
+        const DrivetrainMonitorStatus &status = drivetrain_monitor.status();
+        state.drivetrain_fault_l = static_cast<uint8_t>(status.left);
+        state.drivetrain_fault_r = static_cast<uint8_t>(status.right);
+        state.drivetrain_dropouts_l = status.left_dropouts;
+        state.drivetrain_dropouts_r = status.right_dropouts;
+        state.drivetrain_last_event_ms_l = status.left_last_event_ms;
+        state.drivetrain_last_event_ms_r = status.right_last_event_ms;
+        if (!event.triggered) return;
+
+        state.drivetrain_last_fault = static_cast<uint8_t>(event.fault);
+        state.drivetrain_last_side = static_cast<uint8_t>(event.side);
+        state.drivetrain_warning_started_ms = event.ms;
+        ++state.drivetrain_warning_sequence;
     }
 
     // Part I: bytes 0-1 voltage, 2-3 bus current, 4-5 phase current, 6-7 speed.
@@ -154,6 +174,24 @@ namespace {
         status.rtcm_age_dsec = rtcm_age_dsec(now);
         return status;
     }
+
+    ClusterGnssSpeed snapshot_gnss_speed(uint32_t now, uint8_t life) {
+        ClusterGnssSpeed speed;
+        const bool fresh = state.gps_rmc_last_rx_ms != 0 &&
+                           (now - state.gps_rmc_last_rx_ms) <= GPS_CAN_STALE_MS;
+        speed.rmc_fresh = fresh;
+        speed.gps_fix_valid = fresh && state.gps_fix_ok;
+        speed.speed_valid = speed.gps_fix_valid && state.gps_ground_speed_valid;
+        speed.speed_kph = speed.speed_valid ? state.gps_ground_speed_kph : 0.0f;
+        speed.fix_quality = fresh ? gps_laptimer::fix_quality() : 0;
+        speed.rtk_state = fresh ? rtk_state_from_fix_quality(speed.fix_quality) : 0;
+        if (state.gps_rmc_last_rx_ms != 0) {
+            const uint32_t age_dsec = ((now - state.gps_rmc_last_rx_ms) + 50UL) / 100UL;
+            speed.rmc_age_dsec = age_dsec > 0xFFFFUL ? 0xFFFF : (uint16_t)age_dsec;
+        }
+        speed.life = life;
+        return speed;
+    }
 }
 
 void poll_rx() {
@@ -195,6 +233,7 @@ void poll_rx() {
                 decode_fb1(m.data, state.bus_voltage, state.bus_current, state.speed_rpm_l);
                 state.controller_l_seen = true;
                 state.controller_l_fb1_last_ms = now;
+                update_drivetrain_monitor(DrivetrainSide::Left, state.speed_rpm_l, now);
                 update_display_rpm();
                 break;
             case CAN_ID_FB1_R:
@@ -202,6 +241,7 @@ void poll_rx() {
                 decode_fb1(m.data, state.bus_voltage_r, state.bus_current_r, state.speed_rpm_r);
                 state.controller_r_seen = true;
                 state.controller_r_fb1_last_ms = now;
+                update_drivetrain_monitor(DrivetrainSide::Right, state.speed_rpm_r, now);
                 update_display_rpm();
                 break;
             case CAN_ID_FB2_L:
@@ -219,10 +259,21 @@ void poll_rx() {
                 decode_vcu_cluster_status(m.data, now);
                 break;
             case CAN_ID_VCU_VEHICLE_SPEED:
-                decode_vcu_vehicle_speed(m.data, state.vehicle_speed_kph, state.vehicle_speed_valid);
-                state.wss_kph = state.vehicle_speed_kph;
-                state.wss_valid = state.vehicle_speed_valid;
+            {
+                float kph = 0.0f;
+                bool valid = false;
+                decode_vcu_vehicle_speed(m.data, kph, valid);
+                // invalid 프레임은 직전 valid 값을 유지한다. 구버전 VCU는 invalid일 때
+                // 속도를 0으로 보내므로 그대로 쓰면 표시가 0으로 튄다.
+                if (valid) {
+                    state.wss_kph = kph;
+                    state.wss_last_valid_ms = now;
+                }
+                state.wss_valid = valid;
+                state.vehicle_speed_kph = state.wss_kph;
+                state.vehicle_speed_valid = valid;
                 state.vehicle_speed_last_rx_ms = now;
+            }
                 break;
             default:
                 break;
@@ -263,6 +314,13 @@ void send_gnss_rtk_status() {
     uint8_t data[8];
     encode_cluster_gnss_rtk_status(snapshot_gnss_rtk_status(millis()), data);
     transmit_ext(CAN_ID_CLUSTER_GNSS_RTK_STATUS, data);
+}
+
+void send_gnss_speed() {
+    static uint8_t life = 0;
+    uint8_t data[8];
+    encode_cluster_gnss_speed(snapshot_gnss_speed(millis(), life++), data);
+    transmit_ext(CAN_ID_CLUSTER_GNSS_SPEED, data);
 }
 
 void send_lap_time() {

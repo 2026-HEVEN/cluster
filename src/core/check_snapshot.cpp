@@ -7,6 +7,7 @@
 #include <cmath>
 
 namespace {
+constexpr uint32_t HOME_SPEED_INVALID_HOLD_MS=1000;
 bool fresh(uint32_t stamp,uint32_t now,uint32_t limit) { return stamp && now-stamp<=limit; }
 const char *link(uint32_t stamp,uint32_t now,uint32_t limit) {
     return !stamp ? "WAIT" : fresh(stamp,now,limit) ? "LIVE" : "STALE";
@@ -36,8 +37,8 @@ void check_snapshot(CheckSnapshot &d, uint32_t now) {
     const int mt[]={state.motor_temp,state.motor_temp_r},ct[]={state.controller_temp,state.controller_temp_r};
     const uint8_t status[]={state.controller_status,state.controller_status_r};
     const uint8_t errors[2][3]={{state.error1,state.error2,state.error3},{state.error1_r,state.error2_r,state.error3_r}};
-    const char *keys[]={"LINK I/II","BUS V","BUS A","PHASE A","RPM","MOTOR C","CTRL C","STATUS","FAULT"};
-    for(int i=0;i<9;++i) std::snprintf(d.motor[i][0],20,"%s",keys[i]);
+    const char *keys[]={"LINK I/II","BUS V","BUS A","PHASE A","RPM","DRIVE MON","MOTOR C","CTRL C","STATUS","FAULT"};
+    for(int i=0;i<10;++i) std::snprintf(d.motor[i][0],20,"%s",keys[i]);
     for(int s=0;s<2;++s) {
         const bool a=fresh(fb1[s],now,300),b=fresh(fb2[s],now,300);
         std::snprintf(d.motor[0][s+1],20,"%s/%s",link(fb1[s],now,300),link(fb2[s],now,300));
@@ -45,15 +46,21 @@ void check_snapshot(CheckSnapshot &d, uint32_t now) {
         value(d.motor[2][s+1],20,a,amps[s],"A");
         value(d.motor[3][s+1],20,a,phase[s],"A");
         value(d.motor[4][s+1],20,a,rpm[s],"",0);
-        value(d.motor[5][s+1],20,b,mt[s],"C",0);
-        value(d.motor[6][s+1],20,b,ct[s],"C",0);
+        const uint8_t drive_fault=s==0?state.drivetrain_fault_l:state.drivetrain_fault_r;
+        const uint16_t dropouts=s==0?state.drivetrain_dropouts_l:state.drivetrain_dropouts_r;
+        if(!a) std::snprintf(d.motor[5][s+1],20,"-- WAIT");
+        else if(drive_fault==2) std::snprintf(d.motor[5][s+1],20,"DIVERGED");
+        else if(drive_fault==1) std::snprintf(d.motor[5][s+1],20,"DROPOUT %u",dropouts);
+        else std::snprintf(d.motor[5][s+1],20,"OK / D%u",dropouts);
+        value(d.motor[6][s+1],20,b,mt[s],"C",0);
+        value(d.motor[7][s+1],20,b,ct[s],"C",0);
         if(b) {
-            std::snprintf(d.motor[7][s+1],20,"0x%02X",status[s]);
-            std::snprintf(d.motor[8][s+1],20,"%s %02X/%02X/%02X",
+            std::snprintf(d.motor[8][s+1],20,"0x%02X",status[s]);
+            std::snprintf(d.motor[9][s+1],20,"%s %02X/%02X/%02X",
                 errors[s][0]||errors[s][1]||errors[s][2] ? "ERR":"OK",errors[s][0],errors[s][1],errors[s][2]);
         } else {
-            std::snprintf(d.motor[7][s+1],20,"-- WAIT");
             std::snprintf(d.motor[8][s+1],20,"-- WAIT");
+            std::snprintf(d.motor[9][s+1],20,"-- WAIT");
         }
     }
     const bool bms=state.bms_ble_connected&&fresh(state.bms_last_rx_ms,now,5000);
@@ -91,7 +98,11 @@ void check_snapshot(CheckSnapshot &d, uint32_t now) {
     else row(d.vcu,8,"4 WHEELS >","%s",car_check::quality_label(wq));
     row(d.vcu,9,"STEERING >","%s",car_check::quality_label(cc.steering_rx.quality(now,cc.steering.valid,cc.steering.validity_present)));
     row(d.vcu,10,"IMU >","%s",car_check::quality_label(cc.imu_rx.quality(now,cc.imu.yaw_valid&&cc.imu.accel_valid,cc.imu.validity_present)));
-    row(d.vcu,11,"BRAKE PRESSURE","NOT PROVIDED");
+    if(state.start_input_valid) {
+        row(d.vcu,11,"START INPUT","%s / ADC %.2fV",on(state.start_input_present),state.start_input_mv/1000.0f);
+    } else {
+        row(d.vcu,11,"START INPUT","-- WAIT");
+    }
     const char *wk[]={"WSS FL / km/h","WSS FR / km/h","WSS RL / km/h","WSS RR / km/h"};
     for(int i=0;i<4;++i) {
         const auto q=cc.wheels_rx.quality(now,cc.wheels.valid[i]);
@@ -192,7 +203,11 @@ void check_observe(DiagnosticHistory &h,TelemetryValues &v,uint32_t now) {
 }
 HomeData check_home_snapshot(uint32_t now) {
     HomeData d;
-    d.speed=state.wss_kph;d.speed_ok=state.wss_valid&&fresh(state.vehicle_speed_last_rx_ms,now,300);
+    // 짧은 invalid(가속 중 WSS 판정 흔들림)에는 직전 값을 계속 보여 준다.
+    // 프레임이 끊기거나 valid가 1초 넘게 없을 때만 '--'.
+    d.speed=state.wss_kph;
+    d.speed_ok=fresh(state.vehicle_speed_last_rx_ms,now,300)&&
+        fresh(state.wss_last_valid_ms,now,HOME_SPEED_INVALID_HOLD_MS);
     d.throttle=state.throttle_pct;d.throttle_ok=state.throttle_valid&&fresh(state.throttle_last_rx_ms,now,300);
     d.gear=state.gear;d.gear_ok=state.gear_from_can&&fresh(state.vcu_cluster_status_last_ms,now,300);
     d.brake_valid=fresh(state.vcu_cluster_status_last_ms,now,300);

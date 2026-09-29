@@ -8,7 +8,8 @@ constexpr size_t CHANNELS = static_cast<size_t>(Channel::Count);
 enum class LinkId : uint8_t { MotorL, MotorR, Vcu, Wss, Steering, Imu, Wheels,
     Control, Bms, Em, Gps, Wifi, Ntrip, Rtcm, Count };
 constexpr size_t LINKS = static_cast<size_t>(LinkId::Count);
-enum class EventKind : uint8_t { Connected, Lost, Restored, FaultOn, FaultOff };
+enum class EventKind : uint8_t { Connected, Lost, Restored, FaultOn, FaultOff,
+    DriveDropout, DriveDivergence };
 struct DiagnosticEvent { uint32_t ms; LinkId node; EventKind kind; uint8_t bit; };
 struct ConnectionStats {
     bool seen=false, live=false;
@@ -30,6 +31,7 @@ public:
     void observe(uint32_t now, const TelemetryValues &values);
     void connection(LinkId id, bool live, uint32_t now);
     void fault(LinkId id, uint32_t bitmap, bool valid, uint32_t now);
+    void drivetrain(uint32_t sequence, LinkId id, EventKind kind, uint32_t now);
     const ConnectionStats &connection(LinkId id) const { return links_[static_cast<size_t>(id)]; }
     size_t size() const { return count_; }
     const TelemetrySample &at(size_t i) const { return samples_[(head_+i)%SAMPLE_CAPACITY]; }
@@ -51,6 +53,7 @@ private:
     uint16_t broken_=0;
     bool sampled_=false;
     uint32_t last_sample_=0,overwritten_=0,rtk_overwritten_=0;
+    uint32_t drivetrain_sequence_=0;
     void append(LinkId id, EventKind kind, uint8_t bit, uint32_t now);
 };
 const char *diagnostic_link_name(LinkId id);

@@ -91,6 +91,7 @@ namespace {
     bool gps_fix_was_ok = false;
     bool ntrip_started = false;
     uint32_t last_gnss_position_seq_sent = 0;
+    uint32_t last_gnss_speed_seq_sent = 0;
     uint32_t can_warning_since_ms = 0;
     uint32_t drivetrain_warning_sequence_seen = 0;
     uint32_t vess_frequency_hz = 0;
@@ -620,6 +621,13 @@ static void gnss_position_can_tx_update() {
     }
 }
 static void gnss_status_can_tx_update() { can_bus::send_gnss_rtk_status(); }
+static void gnss_speed_can_tx_update() {
+    const uint32_t seq = gps_laptimer::speed_sequence();
+    if (seq != last_gnss_speed_seq_sent) {
+        can_bus::send_gnss_speed();
+        last_gnss_speed_seq_sent = seq;
+    }
+}
 static void lap_can_tx_update() {
     can_bus::send_lap_time();
     can_bus::send_lap_status(gps_laptimer::timer_running());
@@ -685,6 +693,7 @@ Task g_tasks[] = {
     { bms_can_tx_update, 100, 0 }, // 10 Hz BMS telemetry to logger/TMA-1
     { gnss_position_can_tx_update, 20, 0 }, // event-driven: send once per new RMC fix
     { gnss_status_can_tx_update, 200, 0 },  // 5 Hz GNSS/RTK status telemetry
+    { gnss_speed_can_tx_update, 20, 0 }, // event-driven: one frame per valid/invalid RMC
     { lap_can_tx_update, 200, 0 },          // 5 Hz lap telemetry
     { start_input_update, 5, 0 },           // 200 Hz PCB V3 START presence monitor
     { hmi_update,     20, 0 },   // 50 Hz

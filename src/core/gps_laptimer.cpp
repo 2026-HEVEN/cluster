@@ -78,6 +78,7 @@ uint32_t departure_speed_since_ms = 0;
 uint32_t last_gga_rate_ms = 0;
 uint32_t last_rmc_rate_ms = 0;
 uint32_t position_seq = 0;
+uint32_t speed_seq = 0;
 float gga_rate = 0.0f;
 float rmc_rate = 0.0f;
 
@@ -448,16 +449,29 @@ void parse_rmc(char *sentence) {
         ++p;
     }
 
-    if (count < 7) return;
+    if (count < 8) return;
     if (strcmp(fields[0], "GPRMC") != 0 && strcmp(fields[0], "GNRMC") != 0) return;
-    record_rate(last_rmc_rate_ms, rmc_rate, millis());
+    const uint32_t now = millis();
+    record_rate(last_rmc_rate_ms, rmc_rate, now);
+    state.gps_rmc_last_rx_ms = now;
+    ++speed_seq;
 
     if (fields[2][0] != 'A') {
         state.gps_fix_ok = false;
+        state.gps_ground_speed_kph = 0.0f;
+        state.gps_ground_speed_valid = false;
         latest_fix = false;
         last_fix_ms = 0;
         return;
     }
+
+    char *speed_end = nullptr;
+    const float speed_knots = strtof(fields[7], &speed_end);
+    const bool speed_valid = fields[7][0] != '\0' && speed_end != fields[7] &&
+                             *speed_end == '\0' && isfinite(speed_knots) &&
+                             speed_knots >= 0.0f;
+    state.gps_ground_speed_kph = speed_valid ? speed_knots * 1.852f : 0.0f;
+    state.gps_ground_speed_valid = speed_valid;
 
     const double lat = deg_min_to_decimal(fields[3], fields[4][0]);
     const double lon = deg_min_to_decimal(fields[5], fields[6][0]);
@@ -645,6 +659,10 @@ uint32_t pps_count() {
 
 uint32_t position_sequence() {
     return position_seq;
+}
+
+uint32_t speed_sequence() {
+    return speed_seq;
 }
 
 bool timer_running() {

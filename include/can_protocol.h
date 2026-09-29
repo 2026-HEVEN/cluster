@@ -63,6 +63,7 @@ constexpr uint32_t CAN_ID_CLUSTER_GNSS_POSITION = 0x18F5FFC0;
 constexpr uint32_t CAN_ID_CLUSTER_GNSS_RTK_STATUS = 0x18F6FFC0;
 constexpr uint32_t CAN_ID_CLUSTER_LAP_TIME = 0x18F7FFC0;
 constexpr uint32_t CAN_ID_CLUSTER_LAP_STATUS = 0x18F8FFC0;
+constexpr uint32_t CAN_ID_CLUSTER_GNSS_SPEED = 0x18F9FFC0;
 
 struct ClusterBmsStatus {
     bool     valid = false;
@@ -93,6 +94,17 @@ struct ClusterGnssRtkStatus {
     uint16_t rtcm_age_dsec = 0xFFFF;
 };
 
+struct ClusterGnssSpeed {
+    float speed_kph = 0.0f;
+    bool rmc_fresh = false;
+    bool gps_fix_valid = false;
+    bool speed_valid = false;
+    uint8_t rtk_state = 0; // 0=None, 1=Float, 2=Fixed
+    uint8_t fix_quality = 0;
+    uint16_t rmc_age_dsec = 0xFFFF;
+    uint8_t life = 0;
+};
+
 struct ClusterLapStatus {
     uint32_t best_lap_ms = 0;
     uint8_t lap_count = 0;
@@ -120,6 +132,7 @@ void encode_cluster_bms_status(const ClusterBmsStatus &bms, uint8_t life, uint8_
 void encode_cluster_bms_detail(const ClusterBmsStatus &bms, uint8_t life, uint8_t out[8]);
 void encode_cluster_gnss_position(const ClusterGnssPosition &pos, uint8_t out[8]);
 void encode_cluster_gnss_rtk_status(const ClusterGnssRtkStatus &status, uint8_t out[8]);
+void encode_cluster_gnss_speed(const ClusterGnssSpeed &speed, uint8_t out[8]);
 void encode_cluster_lap_time(uint32_t current_lap_ms, uint32_t last_lap_ms, uint8_t out[8]);
 void encode_cluster_lap_status(const ClusterLapStatus &lap, uint8_t out[8]);
 VcuClusterStatus decode_vcu_cluster_status(const uint8_t data[8]);

@@ -110,6 +110,9 @@ struct ClusterState {
     double   gps_latitude   = 0.0;
     double   gps_longitude  = 0.0;
     uint32_t gps_last_rx_ms = 0;  // last valid GPS/NMEA sentence reception
+    float    gps_ground_speed_kph = 0.0f; // RMC speed over ground
+    bool     gps_ground_speed_valid = false;
+    uint32_t gps_rmc_last_rx_ms = 0;
     uint32_t gps_pps_last_ms = 0; // last GNSS PPS rising edge
     uint32_t gps_pps_count   = 0; // PPS edge counter for diagnostics
     uint8_t  lap_count      = 0;

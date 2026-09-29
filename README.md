@@ -66,6 +66,8 @@ Cluster는 부팅 시 ZED-F9P UART1/UART2가 460800 baud로 설정되어 있더�
 
 RTK 사용 시 Cluster ESP32가 Wi-Fi로 NTRIP caster에 접속하고, 수신한 RTCM3 바이트를 가공 없이 `GPIO26` UART TX로 ZED-F9P RX2에 전달한다. 실제 Wi-Fi/NTRIP 계정정보는 `include/ntrip_secrets.h`에 넣고 Git에는 올리지 않는다. `include/ntrip_secrets.example.h`를 복사해서 사용한다.
 
+Cluster는 ZED-F9P RMC의 Speed Over Ground를 km/h로 변환해 새 RMC마다 Extended CAN `0x18F9FFC0`으로 송신한다. 속도는 0.01 km/h/bit이며 같은 프레임에 RMC fresh, GPS fix, RTK FLOAT/FIXED, speed valid, GGA quality와 RMC age를 포함한다. 상세 byte layout은 `docs/CAN_PROTOCOL.md`를 따른다.
+
 회생제동 입력은 GPIO36/39 두 비트 로터리다. 0단은 OFF, 1~3단은 모두 같은 ON 요청으로 인코딩한다. 실제 회생 가능 여부와 전류 제한은 VCU가 최종 판단한다.
 
 GPIO15는 현재 펌웨어에서 사용하지 않는다. GPIO15는 strapping pin이므로 외부 회로가 부팅 순간 강하게 잡아당기지 않게 주의한다.

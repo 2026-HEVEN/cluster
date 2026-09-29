@@ -174,6 +174,24 @@ namespace {
         status.rtcm_age_dsec = rtcm_age_dsec(now);
         return status;
     }
+
+    ClusterGnssSpeed snapshot_gnss_speed(uint32_t now, uint8_t life) {
+        ClusterGnssSpeed speed;
+        const bool fresh = state.gps_rmc_last_rx_ms != 0 &&
+                           (now - state.gps_rmc_last_rx_ms) <= GPS_CAN_STALE_MS;
+        speed.rmc_fresh = fresh;
+        speed.gps_fix_valid = fresh && state.gps_fix_ok;
+        speed.speed_valid = speed.gps_fix_valid && state.gps_ground_speed_valid;
+        speed.speed_kph = speed.speed_valid ? state.gps_ground_speed_kph : 0.0f;
+        speed.fix_quality = fresh ? gps_laptimer::fix_quality() : 0;
+        speed.rtk_state = fresh ? rtk_state_from_fix_quality(speed.fix_quality) : 0;
+        if (state.gps_rmc_last_rx_ms != 0) {
+            const uint32_t age_dsec = ((now - state.gps_rmc_last_rx_ms) + 50UL) / 100UL;
+            speed.rmc_age_dsec = age_dsec > 0xFFFFUL ? 0xFFFF : (uint16_t)age_dsec;
+        }
+        speed.life = life;
+        return speed;
+    }
 }
 
 void poll_rx() {
@@ -296,6 +314,13 @@ void send_gnss_rtk_status() {
     uint8_t data[8];
     encode_cluster_gnss_rtk_status(snapshot_gnss_rtk_status(millis()), data);
     transmit_ext(CAN_ID_CLUSTER_GNSS_RTK_STATUS, data);
+}
+
+void send_gnss_speed() {
+    static uint8_t life = 0;
+    uint8_t data[8];
+    encode_cluster_gnss_speed(snapshot_gnss_speed(millis(), life++), data);
+    transmit_ext(CAN_ID_CLUSTER_GNSS_SPEED, data);
 }
 
 void send_lap_time() {

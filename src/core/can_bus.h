@@ -14,6 +14,7 @@ namespace can_bus {
     void send_bms_status();                  // encode -> 0x18F3FFC0 / 0x18F4FFC0
     void send_gnss_position();               // encode -> 0x18F5FFC0
     void send_gnss_rtk_status();             // encode -> 0x18F6FFC0
+    void send_gnss_speed();                  // encode -> 0x18F9FFC0
     void send_lap_time();                    // encode -> 0x18F7FFC0
     void send_lap_status(bool timer_running);// encode -> 0x18F8FFC0
 }

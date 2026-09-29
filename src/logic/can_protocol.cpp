@@ -124,6 +124,24 @@ void encode_cluster_gnss_rtk_status(const ClusterGnssRtkStatus &status, uint8_t 
     put_u16le(out + 6, status.rtcm_age_dsec);
 }
 
+void encode_cluster_gnss_speed(const ClusterGnssSpeed &speed, uint8_t out[8]) {
+    for (int i = 0; i < 8; i++) out[i] = 0;
+    uint16_t speed_raw = 0;
+    if (speed.speed_valid && speed.speed_kph > 0.0f) {
+        const float scaled = speed.speed_kph * 100.0f;
+        speed_raw = scaled >= 65535.0f ? 0xFFFF : (uint16_t)(scaled + 0.5f);
+    }
+    put_u16le(out + 0, speed_raw);
+    out[2] = (speed.rmc_fresh ? 0x01 : 0x00) |
+             (speed.gps_fix_valid ? 0x02 : 0x00) |
+             (speed.rtk_state == 1 ? 0x04 : 0x00) |
+             (speed.rtk_state == 2 ? 0x08 : 0x00) |
+             (speed.speed_valid ? 0x10 : 0x00);
+    out[3] = speed.fix_quality;
+    put_u16le(out + 4, speed.rmc_age_dsec);
+    out[7] = speed.life;
+}
+
 void encode_cluster_lap_time(uint32_t current_lap_ms, uint32_t last_lap_ms, uint8_t out[8]) {
     put_u32le(out + 0, current_lap_ms);
     put_u32le(out + 4, last_lap_ms);

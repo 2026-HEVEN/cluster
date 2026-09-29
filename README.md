@@ -52,7 +52,7 @@ pio run -e esp32dev -t upload
 | LCD / Touch SPI | MOSI / SCK / MISO | GPIO17 / 18 / 35 | 공용 SPI |
 | LCD Touch XPT2046 | T_CS | GPIO16 | Touch chip select |
 | GPS ZED-F9P | RX / TX / PPS | GPIO25 / 26 / 27 | 115200 baud NMEA/UBX, RTCM3 및 PPS |
-| VESS | PWM | GPIO4 | ESS-DUAL+ RX-TH 50Hz servo PWM |
+| VESS | PWM | GPIO4 | 중간 반전 회로 전단의 active-low 50Hz PWM. 반전 후 ESS-DUAL+ RX-TH에는 1~2ms High 펄스가 전달되어야 함 |
 | HMI | TV | GPIO32 | 토글 스위치, INPUT_PULLUP, ON=LOW |
 | HMI | Paddock | GPIO33 | 토글 스위치, INPUT_PULLUP, ON=LOW |
 | HMI | HOME | GPIO19 | 순간 푸시 버튼, INPUT_PULLUP, ON=LOW |

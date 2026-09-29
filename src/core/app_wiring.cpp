@@ -78,7 +78,10 @@ namespace {
     uint32_t vess_pulse_us_to_duty(uint16_t pulse_us) {
         const uint32_t period_us = 1000000UL / VESS_PWM_FREQUENCY_HZ;
         const uint32_t max_duty = (1UL << VESS_PWM_RESOLUTION_BITS) - 1UL;
-        return ((uint32_t)pulse_us * max_duty + period_us / 2UL) / period_us;
+        // The external VESS signal stage inverts GPIO4. Keep GPIO4 low for the
+        // requested pulse width so RX-TH receives a short active-high pulse.
+        const uint32_t gpio_high_us = period_us - (uint32_t)pulse_us;
+        return (gpio_high_us * max_duty + period_us / 2UL) / period_us;
     }
 
     void vess_write_pulse(uint16_t pulse_us) {

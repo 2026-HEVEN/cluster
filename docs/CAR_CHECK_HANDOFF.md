@@ -43,7 +43,7 @@ Implemented: controller phase current, EM HV current/CPU temperature, four wheel
 | Rotary common | GND | 0=OFF; 1/2/3 identical ON, not three strengths. |
 | HOME momentary button | GPIO19 to GND | Internal pull-up, active-low. |
 | GPS LAP momentary button | GPIO5 to GND | Internal pull-up, active-low. |
-| VESS PWM output | GPIO4 | Output to VESS. |
+| VESS PWM output | GPIO4 | Active-low 50 Hz PWM before the external inverting stage; RX-TH should see a 1–2 ms high pulse. |
 | Paddock | GPIO33 | Internal pull-up, active-low. |
 | START_IN sense | GPIO34 | ADC input; not a button output. |
 

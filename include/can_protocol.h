@@ -44,8 +44,8 @@ constexpr uint32_t CAN_ID_FB2_L = 0x1802D0EF;   // Part II: temps/status/errors 
 constexpr uint32_t CAN_ID_FB1_R = 0x1801D0F0;   // Part I (Controller_R)
 constexpr uint32_t CAN_ID_FB2_R = 0x1802D0F0;   // Part II (Controller_R)
 // Cluster -> VCU command (paddock/TC/regen enable/debug config). HEVEN-defined.
-// The Cluster keeps a local regen level (0..3), but current VCU dev accepts
-// only a boolean regen-auto request on the bus.
+// byte1 bit1: regen master enable; byte3=0xA0..0xA3: explicit stage 0..3.
+// Always sends rotary position; interpretation is configured by updated VCU.
 constexpr uint32_t CAN_ID_CLUSTER_CMD = 0x1801D0C0;
 // VCU -> Cluster display status. HEVEN-defined. Carries VCU-confirmed gear,
 // HV/brake state, optional SOC, and calibrated throttle percent for VESS.

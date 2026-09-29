@@ -116,7 +116,12 @@ void test_encode_regen_level_as_vcu_boolean(void) {
     encode_cluster_command({false, false, 3, false}, out);
     TEST_ASSERT_EQUAL_UINT8(0x02, out[1] & 0x06);
     encode_cluster_command({false, false, 9, false}, out);
-    TEST_ASSERT_EQUAL_UINT8(0x02, out[1] & 0x06);
+    TEST_ASSERT_EQUAL_UINT8(0, out[1] & 0x06);
+    TEST_ASSERT_EQUAL_UINT8(0xA0, out[3]);
+    for (uint8_t i=0;i<4;++i) {
+        encode_cluster_command({false,false,i,false},out);
+        TEST_ASSERT_EQUAL_UINT8(0xA0|i,out[3]);
+    }
 }
 void test_ezkontrol_handshake_probe_detection(void) {
     uint8_t probe[8] = {0x55, 0x55, 0x55, 0x55, 0x55, 0x55, 0x55, 0x55};

@@ -74,12 +74,13 @@ int32_t clamp_i32_from_double(double value) {
 
 void encode_cluster_command(const ClusterCommand &cmd, uint8_t out[8]) {
     for (int i = 0; i < 8; i++) out[i] = 0;
-    const uint8_t regen_level = cmd.regen_level > 3 ? 3 : cmd.regen_level;
+    const uint8_t regen_level = cmd.regen_level <= 3 ? cmd.regen_level : 0;
     const bool regen_enable = regen_level > 0;
     out[1] = (cmd.tc_enabled ? 0x01 : 0x00) |
              (regen_enable ? 0x02 : 0x00) |
              (cmd.debug_enabled ? 0x08 : 0x00);
     out[2] = (cmd.paddock ? 0x01 : 0x00);
+    out[3] = 0xA0 | regen_level; // explicit stage; byte1 bit1 remains master ON
 }
 
 void encode_cluster_bms_status(const ClusterBmsStatus &bms, uint8_t life, uint8_t out[8]) {

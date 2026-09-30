@@ -298,6 +298,21 @@ void test_encode_cluster_lap_status(void) {
     TEST_ASSERT_EQUAL_UINT8(0xA5, out[7]);
 }
 
+void test_encode_reset_report(void) {
+    // 모든 ESP32 노드 공통 배치. 업타임은 LE 32비트, 리셋 횟수는 255에서 포화.
+    uint8_t d[8];
+    encode_reset_report(9u, 15u, 0x12345678u, 3u, 42u, d);
+    TEST_ASSERT_EQUAL_UINT8(9, d[0]);
+    TEST_ASSERT_EQUAL_UINT8(15, d[1]);
+    TEST_ASSERT_EQUAL_UINT32(0x12345678u,
+        (uint32_t)d[2] | ((uint32_t)d[3] << 8) | ((uint32_t)d[4] << 16) | ((uint32_t)d[5] << 24));
+    TEST_ASSERT_EQUAL_UINT8(3, d[6]);
+    TEST_ASSERT_EQUAL_UINT8(42, d[7]);
+    encode_reset_report(1u, 1u, 0u, 1000u, 0u, d);
+    TEST_ASSERT_EQUAL_UINT8(255, d[6]);
+    TEST_ASSERT_EQUAL_UINT32(0x1CFDFFC0u, CAN_ID_CLUSTER_RESET_REPORT);
+}
+
 void setUp(void) {}
 void test_em_voltage_decode(void) {
     uint8_t data[8] = {0xD7, 0x12, 0x1D, 0xFA, 0x3E, 0x05, 0x4E, 0x0C};
@@ -346,5 +361,6 @@ int main(int, char **) {
     RUN_TEST(test_encode_cluster_gnss_speed_saturates);
     RUN_TEST(test_encode_cluster_lap_time);
     RUN_TEST(test_encode_cluster_lap_status);
+    RUN_TEST(test_encode_reset_report);
     return UNITY_END();
 }

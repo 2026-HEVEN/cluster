@@ -628,6 +628,7 @@ static void gnss_speed_can_tx_update() {
         last_gnss_speed_seq_sent = seq;
     }
 }
+static void reset_report_can_tx_update() { can_bus::send_reset_report(); }
 static void lap_can_tx_update() {
     can_bus::send_lap_time();
     can_bus::send_lap_status(gps_laptimer::timer_running());
@@ -695,6 +696,7 @@ Task g_tasks[] = {
     { gnss_status_can_tx_update, 200, 0 },  // 5 Hz GNSS/RTK status telemetry
     { gnss_speed_can_tx_update, 20, 0 }, // event-driven: one frame per valid/invalid RMC
     { lap_can_tx_update, 200, 0 },          // 5 Hz lap telemetry
+    { reset_report_can_tx_update, 1000, 0 }, // 1 Hz reset cause to logger
     { start_input_update, 5, 0 },           // 200 Hz PCB V3 START presence monitor
     { hmi_update,     20, 0 },   // 50 Hz
     { touch_update,   10, 0 },   // 100 Hz XPT2046 poll (debounce needs several samples per press)
@@ -708,6 +710,9 @@ const int G_TASK_COUNT = sizeof(g_tasks) / sizeof(g_tasks[0]);
 void modules_init() {
     Serial.printf("[DIAGNOSTICS] history %u bytes, 2Hz/60s, volatile events\n",
                   static_cast<unsigned>(sizeof(diagnostic_history)));
+    // TWAI owns the TXD pin before the slow LCD init and first full frame, so
+    // a rebooting cluster leaves the bus recessive instead of undriven.
+    can_bus::begin();
     pinMode(board_pins::TOUCH_CS, OUTPUT);
     digitalWrite(board_pins::TOUCH_CS, HIGH);
     display_blit::begin();
@@ -740,7 +745,6 @@ void modules_init() {
         digitalRead(board_pins::REGEN_BIT1) == LOW;
     regen_bit0_input.changed_ms = regen_bit1_input.changed_ms = now;
     start_input_candidate_since_ms = now;
-    can_bus::begin();
     gps_laptimer::begin();
     bms_ble::begin();
 }

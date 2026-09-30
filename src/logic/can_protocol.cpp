@@ -195,3 +195,15 @@ bool is_ezkontrol_handshake_ack(const uint8_t data[8]) {
 float decode_motor_target_current_a(const uint8_t data[8]) {
     return raw_to_torque(get_u16le(data + 0));
 }
+
+void encode_reset_report(uint8_t reason, uint8_t rom_reason, uint32_t uptime_ms,
+                         uint32_t resets_since_power_on, uint8_t life,
+                         uint8_t out[8]) {
+    out[0] = reason;
+    out[1] = rom_reason;
+    put_u16le(out + 2, (uint16_t)(uptime_ms & 0xFFFFu));
+    put_u16le(out + 4, (uint16_t)(uptime_ms >> 16));
+    out[6] = resets_since_power_on > 255u ? (uint8_t)255u
+                                          : (uint8_t)resets_since_power_on;
+    out[7] = life;
+}

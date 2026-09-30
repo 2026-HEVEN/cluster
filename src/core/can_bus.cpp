@@ -6,6 +6,8 @@
 #include "core/can_bus.h"
 #include <Arduino.h>
 #include "driver/twai.h"
+#include "esp_rom_sys.h"
+#include "esp_system.h"
 #include "can_protocol.h"
 #include "state.h"
 #include "core/gps_laptimer.h"
@@ -14,6 +16,31 @@
 #include "modules/drivetrain_monitor.h"
 
 namespace can_bus {
+
+namespace {
+    // Reset cause of this boot. The count survives every reset except power
+    // loss (RTC no-init memory), so it separates brownout/crash loops from a
+    // fresh key-on.
+    constexpr uint32_t RESET_MAGIC = 0x52535431u; // "RST1"
+    RTC_NOINIT_ATTR uint32_t g_reset_magic;
+    RTC_NOINIT_ATTR uint32_t g_reset_count;
+    uint8_t g_reset_reason = 0;
+    uint8_t g_reset_rom_reason = 0;
+
+    void note_reset() {
+        g_reset_reason = static_cast<uint8_t>(esp_reset_reason());
+        g_reset_rom_reason = static_cast<uint8_t>(esp_rom_get_reset_reason(0));
+        if (g_reset_reason == ESP_RST_POWERON || g_reset_magic != RESET_MAGIC) {
+            g_reset_magic = RESET_MAGIC;
+            g_reset_count = 0U;
+        } else {
+            ++g_reset_count;
+        }
+        Serial.printf("[BOOT] reset reason=%u rom=%u count=%lu\n",
+                      g_reset_reason, g_reset_rom_reason,
+                      static_cast<unsigned long>(g_reset_count));
+    }
+}
 
 void begin() {
     twai_general_config_t g = TWAI_GENERAL_CONFIG_DEFAULT(
@@ -26,6 +53,7 @@ void begin() {
     twai_filter_config_t  f = TWAI_FILTER_CONFIG_ACCEPT_ALL();
     twai_driver_install(&g, &t, &f);
     twai_start();
+    note_reset();
 }
 
 namespace {
@@ -327,6 +355,14 @@ void send_lap_time() {
     uint8_t data[8];
     encode_cluster_lap_time(state.current_lap_ms, state.last_lap_ms, data);
     transmit_ext(CAN_ID_CLUSTER_LAP_TIME, data);
+}
+
+void send_reset_report() {
+    static uint8_t life = 0;
+    uint8_t data[8];
+    encode_reset_report(g_reset_reason, g_reset_rom_reason, millis(),
+                        g_reset_count, life++, data);
+    transmit_ext(CAN_ID_CLUSTER_RESET_REPORT, data);
 }
 
 void send_lap_status(bool timer_running) {

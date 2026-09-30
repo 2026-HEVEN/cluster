@@ -65,6 +65,13 @@ constexpr uint32_t CAN_ID_CLUSTER_LAP_TIME = 0x18F7FFC0;
 constexpr uint32_t CAN_ID_CLUSTER_LAP_STATUS = 0x18F8FFC0;
 constexpr uint32_t CAN_ID_CLUSTER_GNSS_SPEED = 0x18F9FFC0;
 
+// Node reset report, same layout on every ESP32 node (0x1CFDFF00 | SA), 1 s.
+// Repeated so a logger that rebooted at the same moment still records it.
+// b0 esp_reset_reason  b1 ROM reset reason (CPU0)  b2-5 uptime ms LE
+// b6 resets since power-on (saturating)  b7 life
+constexpr uint32_t CAN_ID_RESET_REPORT_BASE    = 0x1CFDFF00;
+constexpr uint32_t CAN_ID_CLUSTER_RESET_REPORT = CAN_ID_RESET_REPORT_BASE | SA_CLUSTER;
+
 struct ClusterBmsStatus {
     bool     valid = false;
     bool     ble_connected = false;
@@ -135,6 +142,9 @@ void encode_cluster_gnss_rtk_status(const ClusterGnssRtkStatus &status, uint8_t 
 void encode_cluster_gnss_speed(const ClusterGnssSpeed &speed, uint8_t out[8]);
 void encode_cluster_lap_time(uint32_t current_lap_ms, uint32_t last_lap_ms, uint8_t out[8]);
 void encode_cluster_lap_status(const ClusterLapStatus &lap, uint8_t out[8]);
+void encode_reset_report(uint8_t reason, uint8_t rom_reason, uint32_t uptime_ms,
+                         uint32_t resets_since_power_on, uint8_t life,
+                         uint8_t out[8]);
 VcuClusterStatus decode_vcu_cluster_status(const uint8_t data[8]);
 void decode_vcu_vehicle_speed(const uint8_t d[8], float &kph, bool &valid);
 bool is_ezkontrol_handshake_probe(const uint8_t data[8]);

@@ -40,6 +40,13 @@ constexpr uint32_t GPS_FIX_TIMEOUT_MS = 3000;
 constexpr float GPS_RATE_ALPHA = 0.25f;
 
 HardwareSerial gps_serial(2);
+// The Arduino UART mutex is held for the whole of a write. With no TX ring
+// buffer (the default) a 256-byte RTCM chunk from the NTRIP task blocks until
+// it has drained through the 128-byte FIFO at 115200 baud, and poll() in the
+// loop waited on that mutex for every byte: loop stalls of 270-460 ms on the
+// bench (2026-10-01). With a ring buffer a write is a memcpy.
+constexpr size_t GPS_TX_BUFFER_SIZE = 4096;
+constexpr size_t GPS_RX_CHUNK = 128;
 char line[GPS_LINE_MAX];
 int line_len = 0;
 char last_gga[GGA_LINE_MAX];
@@ -519,6 +526,7 @@ void consume_char(char c) {
 
 void begin() {
     if (!uart_lock) uart_lock = xSemaphoreCreateMutex();
+    gps_serial.setTxBufferSize(GPS_TX_BUFFER_SIZE); // before the first begin(); kept across end()
     pinMode(board_pins::GNSS_PPS, INPUT);
     attachInterrupt(digitalPinToInterrupt(board_pins::GNSS_PPS), pps_isr, RISING);
     force_gps_baud_115200(true, GPS_STARTUP_WAIT_MS);
@@ -540,8 +548,12 @@ void poll() {
     state.gps_pps_last_ms = pps_ms;
     state.gps_pps_count = pps_count_snapshot;
 
-    while (gps_serial.available() > 0) {
-        consume_char((char)gps_serial.read());
+    // One mutex take per chunk instead of two per byte.
+    uint8_t chunk[GPS_RX_CHUNK];
+    for (;;) {
+        const size_t n = gps_serial.read(chunk, sizeof(chunk));
+        for (size_t i = 0; i < n; ++i) consume_char((char)chunk[i]);
+        if (n < sizeof(chunk)) break;
     }
 
     const uint32_t now = millis();

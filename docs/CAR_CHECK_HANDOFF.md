@@ -43,7 +43,7 @@ Implemented: controller phase current, EM HV current/CPU temperature, four wheel
 | Rotary common | GND | 0=OFF; 1/2/3 identical ON, not three strengths. |
 | HOME momentary button | GPIO19 to GND | PCB 10k external pull-up, active-low. |
 | GPS LAP momentary button | GPIO5 to GND | PCB 10k external pull-up, active-low. |
-| VESS PWM output | GPIO4 | Inverting MOSFET; external HIGH about 2ms at 50-100Hz. |
+| VESS PWM output | GPIO4 | 50Hz PWM before the inverting MOSFET; RX-TH receives a 1-2ms HIGH pulse. |
 | Paddock | GPIO33 | PCB 10k external pull-up, active-low. |
 | START_IN sense | GPIO34 | ADC presence input; shown on VCU/SENSOR detail page. |
 

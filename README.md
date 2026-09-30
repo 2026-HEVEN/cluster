@@ -52,7 +52,7 @@ pio run -e esp32dev -t upload
 | LCD / Touch SPI | MOSI / SCK / MISO | GPIO17 / 18 / 35 | 공용 SPI |
 | LCD Touch XPT2046 | T_CS | GPIO16 | Touch chip select |
 | GPS ZED-F9P | RX / TX / PPS | GPIO25 / 26 / 27 | 115200 baud NMEA/UBX, RTCM3 및 PPS |
-| VESS | PWM | GPIO4 | 반전 MOSFET 구동, 외부 HIGH 약 2ms, 50~100Hz |
+| VESS | PWM | GPIO4 | 반전 MOSFET 구동, 50Hz 고정. 외부 RX-TH에는 1~2ms High 펄스 출력 |
 | HMI | TV | GPIO32 | 토글 스위치, PCB 외부 10k 풀업, ON=LOW |
 | HMI | Paddock | GPIO33 | 토글 스위치, PCB 외부 10k 풀업, ON=LOW |
 | HMI | HOME | GPIO19 | 순간 푸시 버튼, PCB 외부 10k 풀업, ON=LOW |

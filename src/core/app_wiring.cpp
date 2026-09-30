@@ -36,10 +36,8 @@ static TelemetryValues diagnostic_values;
 namespace {
     // Physical GPIO assignments live in core/board_pins.h (PCB V3).
     constexpr uint8_t VESS_PWM_CHANNEL = 0;
-    constexpr uint32_t VESS_MIN_FREQUENCY_HZ = 50;
-    constexpr uint32_t VESS_MAX_FREQUENCY_HZ = 100;
-    constexpr uint32_t VESS_EXTERNAL_HIGH_US = 2000;
-    constexpr uint8_t VESS_PWM_RESOLUTION_BITS = 14;
+    constexpr uint32_t VESS_PWM_FREQUENCY_HZ = 50;
+    constexpr uint8_t VESS_PWM_RESOLUTION_BITS = 16;
     constexpr uint16_t START_INPUT_ON_MV = 1500;
     constexpr uint16_t START_INPUT_OFF_MV = 1000;
     constexpr uint32_t START_INPUT_DEBOUNCE_MS = 20;
@@ -92,7 +90,6 @@ namespace {
     uint32_t last_gnss_speed_seq_sent = 0;
     uint32_t can_warning_since_ms = 0;
     uint32_t drivetrain_warning_sequence_seen = 0;
-    uint32_t vess_frequency_hz = 0;
 
     struct DebouncedInput {
         bool raw = false;
@@ -104,32 +101,17 @@ namespace {
     bool start_input_candidate = false;
     uint32_t start_input_candidate_since_ms = 0;
 
-    uint32_t vess_raw_high_duty(uint32_t frequency_hz) {
-        const uint32_t period_counts = 1UL << VESS_PWM_RESOLUTION_BITS;
-        const uint32_t max_duty = period_counts - 1UL;
-        const uint32_t external_high_counts =
-            ((uint64_t)period_counts * VESS_EXTERNAL_HIGH_US * frequency_hz + 500000UL) /
-            1000000UL;
-        const uint32_t raw_high_counts = period_counts - external_high_counts;
-        return raw_high_counts > max_duty ? max_duty : raw_high_counts;
+    uint32_t vess_pulse_us_to_duty(uint16_t pulse_us) {
+        const uint32_t period_us = 1000000UL / VESS_PWM_FREQUENCY_HZ;
+        const uint32_t max_duty = (1UL << VESS_PWM_RESOLUTION_BITS) - 1UL;
+        // The external MOSFET inverts GPIO4: a 1-2 ms LOW interval here
+        // becomes the requested 1-2 ms HIGH pulse at RX-TH.
+        const uint32_t gpio_high_us = period_us - (uint32_t)pulse_us;
+        return (gpio_high_us * max_duty + period_us / 2UL) / period_us;
     }
 
-    uint32_t vess_percent_to_frequency(int16_t percent) {
-        int32_t magnitude = percent < 0 ? -(int32_t)percent : (int32_t)percent;
-        if (magnitude > 100) magnitude = 100;
-        return VESS_MIN_FREQUENCY_HZ +
-               (uint32_t)magnitude * (VESS_MAX_FREQUENCY_HZ - VESS_MIN_FREQUENCY_HZ) / 100UL;
-    }
-
-    void vess_write_percent(int16_t percent) {
-        const uint32_t frequency_hz = vess_percent_to_frequency(percent);
-        if (frequency_hz != vess_frequency_hz) {
-            ledcSetup(VESS_PWM_CHANNEL, frequency_hz, VESS_PWM_RESOLUTION_BITS);
-            vess_frequency_hz = frequency_hz;
-        }
-        // PCB V3 uses one inverting NMOS stage. Keeping the MCU output HIGH
-        // except for this 2 ms LOW interval creates a 2 ms external HIGH pulse.
-        ledcWrite(VESS_PWM_CHANNEL, vess_raw_high_duty(frequency_hz));
+    void vess_write_pulse(uint16_t pulse_us) {
+        ledcWrite(VESS_PWM_CHANNEL, vess_pulse_us_to_duty(pulse_us));
     }
 
     bool debounce_active_low(DebouncedInput &input, int pin, uint32_t now) {
@@ -573,7 +555,7 @@ static void vess_update() {
         vehicle_on,
         state.gear,
     });
-    vess_write_percent(out.throttle_percent);
+    vess_write_pulse(out.pulse_us);
 }
 
 static void start_input_update() {
@@ -709,9 +691,9 @@ void modules_init() {
     display_blit::set_idle_hook(touch_update);
     pinMode(board_pins::VESS_PWM, OUTPUT);
     digitalWrite(board_pins::VESS_PWM, HIGH);
-    ledcSetup(VESS_PWM_CHANNEL, VESS_MIN_FREQUENCY_HZ, VESS_PWM_RESOLUTION_BITS);
+    ledcSetup(VESS_PWM_CHANNEL, VESS_PWM_FREQUENCY_HZ, VESS_PWM_RESOLUTION_BITS);
     ledcAttachPin(board_pins::VESS_PWM, VESS_PWM_CHANNEL);
-    vess_write_percent(0);
+    vess_write_pulse(1500);
 
     pinMode(board_pins::PADDOCK_SWITCH, INPUT);
     pinMode(board_pins::TV_SWITCH, INPUT);

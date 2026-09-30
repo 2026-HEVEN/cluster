@@ -175,7 +175,7 @@
 > 회생제동은 PCB V3 로터리 스위치 GPIO36(bit0), GPIO39(bit1)의 active-low 입력으로 결정한다. 두 핀 모두 입력 전용이므로 외부 풀업을 사용한다. 0단은 OFF, 1~3단은 ON이며 부팅 시에도 실제 스위치 위치를 따른다. RGN은 Car Check에서 ON/OFF 요청 상태로 표시하며 기본 화면에서는 표시하지 않는다.
 > PCB V3 배선: TV GPIO32, Paddock GPIO33, HOME GPIO19, GPS LAP GPIO5, VESS PWM GPIO4이다. HOME은 Cluster 내부 기능으로 CAN 요청을 보내지 않는다.
 > VCU/토크벡터링팀 인계: TV 스위치 요청은 기존 0x1801D0C0 Byte1 bit0을 그대로 사용하며 VCU에서 실제 적용 여부를 확인해야 한다. 회생제동 요청은 동일 프레임 Byte1 bit1로 0단=0, 1~3단=1을 송신한다(강도 3단계 구분 없음).
-> VESS는 CAN 커맨드에 싣지 않는다. Cluster GPIO4가 PCB V3의 단일 반전 MOSFET을 통해 외부 HIGH 약 2ms, 50~100Hz 펄스를 직접 출력한다. 현재 구현은 VCU throttle feedback을 우선 사용하고, 없으면 모터 target current/차량속도 순서로 fallback하며 절댓값 크기를 주파수에 선형 대응한다.
+> VESS는 CAN 커맨드에 싣지 않는다. Cluster GPIO4는 PCB V3의 단일 반전 MOSFET 앞에서 50Hz PWM을 출력한다. GPIO4의 Low 폭은 1~2ms이며 반전 후 RX-TH에는 같은 폭의 High 펄스가 전달된다. 현재 구현은 VCU throttle feedback을 우선 사용하고, 없으면 모터 target current/차량속도 순서로 fallback하며 출력 펄스폭을 결정한다.
 
 ### EM Gateway 전압 표시 (2026-09-07)
 

@@ -172,7 +172,8 @@ namespace {
     uint16_t rtcm_age_dsec(uint32_t now) {
         const uint32_t last_rtcm = ntrip::last_rtcm_ms();
         if (last_rtcm == 0) return 0xFFFF;
-        const uint32_t age_ms = now - last_rtcm;
+        // Written by the NTRIP task on core 0; may be newer than `now`.
+        const uint32_t age_ms = (int32_t)(now - last_rtcm) < 0 ? 0U : now - last_rtcm;
         const uint32_t dsec = (age_ms + 50UL) / 100UL;
         return dsec > 0xFFFFUL ? 0xFFFF : (uint16_t)dsec;
     }
@@ -192,7 +193,7 @@ namespace {
 
         const uint32_t last_rtcm = ntrip::last_rtcm_ms();
         status.rtcm_fresh = last_rtcm != 0 &&
-                            (now - last_rtcm) <= RTCM_CAN_FRESH_MS;
+                            (int32_t)(now - last_rtcm) <= (int32_t)RTCM_CAN_FRESH_MS;
         status.fix_quality = status.gps_data_fresh ? gps_laptimer::fix_quality() : 0;
         status.rtk_state = status.gps_data_fresh
             ? rtk_state_from_fix_quality(status.fix_quality)

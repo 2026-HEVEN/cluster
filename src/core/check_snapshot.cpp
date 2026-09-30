@@ -8,7 +8,8 @@
 
 namespace {
 constexpr uint32_t HOME_SPEED_INVALID_HOLD_MS=1000;
-bool fresh(uint32_t stamp,uint32_t now,uint32_t limit) { return stamp && now-stamp<=limit; }
+// Signed: stamps from the NTRIP task (core 0) may be a few ms newer than `now`.
+bool fresh(uint32_t stamp,uint32_t now,uint32_t limit) { return stamp && (int32_t)(now-stamp)<=(int32_t)limit; }
 const char *link(uint32_t stamp,uint32_t now,uint32_t limit) {
     return !stamp ? "WAIT" : fresh(stamp,now,limit) ? "LIVE" : "STALE";
 }

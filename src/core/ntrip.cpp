@@ -115,11 +115,17 @@ void close_stream() {
     reset_stream_state();
 }
 
+// GGA stamps come from the GPS parser on the other core and may be a few ms
+// newer than `now`; unsigned `now - stamp` would wrap to ~49 days.
+uint32_t age_ms(uint32_t now, uint32_t stamp) {
+    return (int32_t)(now - stamp) < 0 ? 0U : now - stamp;
+}
+
 const char *fresh_gga(uint32_t now) {
     static char gga[GGA_COPY_MAX]; // NTRIP task only
     uint32_t gga_ms = 0;
     if (!gps_laptimer::copy_last_gga(gga, sizeof(gga), &gga_ms)) return nullptr;
-    if (gga_ms == 0 || now - gga_ms > GGA_MAX_AGE_MS) return nullptr;
+    if (gga_ms == 0 || age_ms(now, gga_ms) > GGA_MAX_AGE_MS) return nullptr;
     return gga;
 }
 
@@ -264,7 +270,7 @@ void send_gga(uint32_t now) {
 
 void check_timeouts(uint32_t now) {
     const uint32_t gga_ms = gps_laptimer::last_gga_ms();
-    if (gga_ms != 0 && now - gga_ms > GGA_WARN_AGE_MS) {
+    if (gga_ms != 0 && age_ms(now, gga_ms) > GGA_WARN_AGE_MS) {
         if (!gga_stale_logged) {
             Serial.println("[GPS] WARNING: GGA stale");
             gga_stale_logged = true;
@@ -345,7 +351,7 @@ void log_status(uint32_t now) {
     else Serial.println(gps_laptimer::hdop(), 1);
     Serial.print("GGA age    : ");
     if (gps_laptimer::last_gga_ms() == 0) Serial.println("---");
-    else Serial.println((now - gps_laptimer::last_gga_ms()) / 1000.0f, 1);
+    else Serial.println(age_ms(now, gps_laptimer::last_gga_ms()) / 1000.0f, 1);
     Serial.print("RTCM bytes : ");
     Serial.println(total_rtcm_bytes);
     Serial.print("RTCM age   : ");

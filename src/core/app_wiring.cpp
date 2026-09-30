@@ -55,7 +55,6 @@ namespace {
     constexpr uint32_t GPS_SIGNAL_TIMEOUT_MS = 3000;
     constexpr uint32_t GPS_POSITION_CAN_STALE_MS = 3000;
     constexpr uint32_t LAP_NOTICE_MS = 1500;
-    constexpr uint32_t NTRIP_START_DELAY_MS = 5000;
     constexpr float WHEEL_DIAMETER_M = 0.4597f;
     constexpr float MOTOR_TO_WHEEL_RATIO = 3.72f;
     constexpr float PI_F = 3.14159265f;
@@ -89,7 +88,6 @@ namespace {
     const char *lap_notice_label = nullptr;
     uint32_t lap_notice_until_ms = 0;
     bool gps_fix_was_ok = false;
-    bool ntrip_started = false;
     uint32_t last_gnss_position_seq_sent = 0;
     uint32_t last_gnss_speed_seq_sent = 0;
     uint32_t can_warning_since_ms = 0;
@@ -599,15 +597,6 @@ static void start_input_update() {
 
 static void can_rx_update() { can_bus::poll_rx(); }
 static void gps_update() { gps_laptimer::poll(); }
-static void ntrip_update() {
-    const uint32_t now = millis();
-    if (!ntrip_started) {
-        if (now < NTRIP_START_DELAY_MS) return;
-        ntrip::begin();
-        ntrip_started = true;
-    }
-    ntrip::poll();
-}
 static void bms_update() { bms_ble::poll(); }
 static void bms_can_tx_update() { can_bus::send_bms_status(); }
 static void gnss_position_can_tx_update() {
@@ -689,7 +678,6 @@ static void display_update() {
 Task g_tasks[] = {
     { can_rx_update,   5, 0 },   // 200 Hz drain
     { gps_update,     20, 0 },   // 50 Hz UART drain
-    { ntrip_update,   10, 0 },   // 100 Hz Wi-Fi/NTRIP RTCM forwarding
     { bms_update,    100, 0 },   // 10 Hz BLE BMS state machine
     { bms_can_tx_update, 100, 0 }, // 10 Hz BMS telemetry to logger/TMA-1
     { gnss_position_can_tx_update, 20, 0 }, // event-driven: send once per new RMC fix
@@ -747,5 +735,6 @@ void modules_init() {
     start_input_candidate_since_ms = now;
     gps_laptimer::begin();
     bms_ble::begin();
+    ntrip::start_task(); // own task: Wi-Fi/TCP retries must not stall this loop
 }
 

@@ -10,7 +10,8 @@ bool stop();
 bool resume();
 void reset();
 size_t write_rtcm(const uint8_t *data, size_t len);
-const char *last_gga_sentence();
+// Thread-safe copy of the last GGA sentence; false when none has arrived.
+bool copy_last_gga(char *out, size_t out_len, uint32_t *gga_ms);
 uint32_t last_gga_ms();
 uint32_t last_nmea_ms();
 uint32_t last_pps_ms();

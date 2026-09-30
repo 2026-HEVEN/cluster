@@ -2,8 +2,8 @@
 #include <cstdint>
 
 namespace ntrip {
-void begin();
-void poll();
+// Runs Wi-Fi + NTRIP in its own task (core 0); getters are safe from any task.
+void start_task();
 bool wifi_connected();
 bool connected();
 const char *status_label();

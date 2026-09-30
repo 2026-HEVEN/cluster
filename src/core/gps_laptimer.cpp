@@ -18,6 +18,13 @@ constexpr uint8_t GPS_BAUD_RUNTIME_LAYERS = 0x01; // RAM
 constexpr uint8_t GPS_BAUD_PERSIST_LAYERS = 0x07; // RAM + BBR + Flash
 constexpr int GPS_LINE_MAX = 96;
 constexpr int GGA_LINE_MAX = 96;
+
+// The NTRIP task (core 0) writes RTCM into gps_serial and reads the last GGA
+// while the scheduler (core 1) parses NMEA and may re-open the UART on an
+// NMEA timeout. uart_lock serialises UART writes against end()/begin();
+// gga_mux keeps the GGA copy from being read half-written.
+SemaphoreHandle_t uart_lock = nullptr;
+portMUX_TYPE gga_mux = portMUX_INITIALIZER_UNLOCKED;
 constexpr float FINISH_LINE_HALF_WIDTH_M = 5.0f;
 constexpr float START_RADIUS_M = 2.0f;
 constexpr float FINISH_HEADING_LOCK_DISTANCE_M = 5.0f;
@@ -137,6 +144,7 @@ void send_ubx_all_uart_baud(uint32_t baud, uint8_t layers) {
 
 void force_gps_baud_115200(bool persist, uint32_t startup_wait_ms) {
     const uint8_t layers = persist ? GPS_BAUD_PERSIST_LAYERS : GPS_BAUD_RUNTIME_LAYERS;
+    xSemaphoreTake(uart_lock, portMAX_DELAY);
 
     gps_serial.end();
     gps_serial.begin(GPS_RECOVERY_BAUD, SERIAL_8N1, board_pins::GNSS_RX, board_pins::GNSS_TX);
@@ -152,6 +160,7 @@ void force_gps_baud_115200(bool persist, uint32_t startup_wait_ms) {
     gps_serial.begin(GPS_BAUD, SERIAL_8N1, board_pins::GNSS_RX, board_pins::GNSS_TX);
     send_ubx_all_uart_baud(GPS_BAUD, layers);
     last_baud_force_ms = millis();
+    xSemaphoreGive(uart_lock);
 
     Serial.print("[GPS] UART1/UART2 forced to ");
     Serial.print(GPS_BAUD);
@@ -175,9 +184,12 @@ double deg_min_to_decimal(const char *value, char hemi) {
 }
 
 void copy_gga_sentence(const char *sentence) {
+    const uint32_t now = millis();
+    portENTER_CRITICAL(&gga_mux);
     std::strncpy(last_gga, sentence, sizeof(last_gga) - 1);
     last_gga[sizeof(last_gga) - 1] = '\0';
-    last_gga_time_ms = millis();
+    last_gga_time_ms = now;
+    portEXIT_CRITICAL(&gga_mux);
 }
 
 void record_rate(uint32_t &last_ms, float &rate_hz, uint32_t now) {
@@ -506,6 +518,7 @@ void consume_char(char c) {
 }
 
 void begin() {
+    if (!uart_lock) uart_lock = xSemaphoreCreateMutex();
     pinMode(board_pins::GNSS_PPS, INPUT);
     attachInterrupt(digitalPinToInterrupt(board_pins::GNSS_PPS), pps_isr, RISING);
     force_gps_baud_115200(true, GPS_STARTUP_WAIT_MS);
@@ -633,12 +646,22 @@ void reset() {
 }
 
 size_t write_rtcm(const uint8_t *data, size_t len) {
-    if (!data || len == 0) return 0;
-    return gps_serial.write(data, len);
+    if (!data || len == 0 || !uart_lock) return 0;
+    // Drop the chunk rather than wait out a UART re-open; RTCM is streamed.
+    if (xSemaphoreTake(uart_lock, pdMS_TO_TICKS(50)) != pdTRUE) return 0;
+    const size_t n = gps_serial.write(data, len);
+    xSemaphoreGive(uart_lock);
+    return n;
 }
 
-const char *last_gga_sentence() {
-    return last_gga;
+bool copy_last_gga(char *out, size_t out_len, uint32_t *gga_ms) {
+    if (!out || out_len == 0) return false;
+    portENTER_CRITICAL(&gga_mux);
+    std::strncpy(out, last_gga, out_len - 1);
+    out[out_len - 1] = '\0';
+    if (gga_ms) *gga_ms = last_gga_time_ms;
+    portEXIT_CRITICAL(&gga_mux);
+    return out[0] != '\0';
 }
 
 uint32_t last_gga_ms() {

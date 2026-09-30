@@ -9,6 +9,16 @@
 
 namespace ntrip {
 namespace {
+// Wi-Fi joins and the caster TCP connect block for up to ~1 s per attempt.
+// They run in their own task so the display/CAN scheduler never stalls on
+// them (09-30 logs: the cluster went silent 0.4-1.4 s every 5 s while
+// parked with no hotspot). Other tasks read only the cached pub_* values.
+constexpr uint32_t START_DELAY_MS = 5000;
+constexpr uint32_t TASK_PERIOD_MS = 10;
+constexpr uint32_t TASK_STACK = 8192;
+constexpr UBaseType_t TASK_PRIORITY = 1;
+constexpr BaseType_t TASK_CORE = 0; // with the Wi-Fi stack, away from loop()
+constexpr size_t GGA_COPY_MAX = 96;
 constexpr uint32_t WIFI_RETRY_MS = 5000;
 constexpr uint32_t NTRIP_RECONNECT_MS = 5000;
 constexpr uint32_t NTRIP_CONNECT_TIMEOUT_MS = 1000;
@@ -43,8 +53,8 @@ uint32_t last_gga_sent_ms = 0;
 uint32_t last_status_log_ms = 0;
 uint32_t header_wait_start_ms = 0;
 uint32_t stream_connected_ms = 0;
-uint32_t total_rtcm_bytes = 0;
-uint32_t last_rtcm_time_ms = 0;
+volatile uint32_t total_rtcm_bytes = 0;
+volatile uint32_t last_rtcm_time_ms = 0;
 bool wifi_connected_logged = false;
 bool ntrip_connected_logged = false;
 bool wifi_disconnected_logged = false;
@@ -106,9 +116,9 @@ void close_stream() {
 }
 
 const char *fresh_gga(uint32_t now) {
-    const char *gga = gps_laptimer::last_gga_sentence();
-    if (!gga || gga[0] == '\0') return nullptr;
-    const uint32_t gga_ms = gps_laptimer::last_gga_ms();
+    static char gga[GGA_COPY_MAX]; // NTRIP task only
+    uint32_t gga_ms = 0;
+    if (!gps_laptimer::copy_last_gga(gga, sizeof(gga), &gga_ms)) return nullptr;
     if (gga_ms == 0 || now - gga_ms > GGA_MAX_AGE_MS) return nullptr;
     return gga;
 }
@@ -343,14 +353,20 @@ void log_status(uint32_t now) {
     else Serial.println((now - last_rtcm_time_ms) / 1000.0f, 1);
     Serial.println("================================");
 }
+
+// Snapshot for other tasks. Written only by the NTRIP task (and once by
+// start_task before it exists); single-word stores, no lock needed.
+volatile bool pub_wifi = false;
+volatile bool pub_stream = false;
+const char *volatile pub_label = "NTRIP OFF";
+
+void publish() {
+    pub_wifi = WiFi.status() == WL_CONNECTED;
+    pub_stream = stream_ok && client.connected();
+    pub_label = status_text();
 }
 
-void begin() {
-    if (!configured()) {
-        status = NtripStatus::Disabled;
-        Serial.println("[NTRIP] disabled: create include/ntrip_secrets.h");
-        return;
-    }
+void begin_wifi() {
 
     WiFi.persistent(false);
     WiFi.mode(WIFI_STA);
@@ -361,7 +377,6 @@ void begin() {
 }
 
 void poll() {
-    if (!configured()) return;
 
     const uint32_t now = millis();
     connect_wifi(now);
@@ -399,18 +414,41 @@ void poll() {
     send_gga(now);
     check_timeouts(now);
     log_status(now);
+    publish();
+}
+
+void task(void *) {
+    while (millis() < START_DELAY_MS) vTaskDelay(pdMS_TO_TICKS(100));
+    begin_wifi();
+    for (;;) {
+        poll();
+        vTaskDelay(pdMS_TO_TICKS(TASK_PERIOD_MS));
+    }
+}
+} // namespace
+
+void start_task() {
+    if (!configured()) {
+        status = NtripStatus::Disabled;
+        Serial.println("[NTRIP] disabled: create include/ntrip_secrets.h");
+        publish();
+        return;
+    }
+    publish();
+    xTaskCreatePinnedToCore(task, "ntrip", TASK_STACK, nullptr, TASK_PRIORITY,
+                            nullptr, TASK_CORE);
 }
 
 bool wifi_connected() {
-    return WiFi.status() == WL_CONNECTED;
+    return pub_wifi;
 }
 
 bool connected() {
-    return stream_ok && client.connected();
+    return pub_stream;
 }
 
 const char *status_label() {
-    return status_text();
+    return pub_label;
 }
 
 uint32_t rtcm_bytes() {

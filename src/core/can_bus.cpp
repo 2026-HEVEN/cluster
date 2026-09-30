@@ -416,6 +416,10 @@ void send_reset_report() {
     transmit_ext(CAN_ID_CLUSTER_RESET_REPORT, data);
 }
 
+void send_loop_timing(const uint8_t data[8]) {
+    transmit_ext(CAN_ID_CLUSTER_LOOP_TIMING, data);
+}
+
 void send_lap_status(bool timer_running) {
     static uint8_t life = 0;
     uint8_t data[8];

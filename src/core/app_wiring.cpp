@@ -379,8 +379,11 @@ namespace {
         if (tap.valid) touch_on_tap(tap);
     }
 
+    void timing_print(); // loop timing diagnostics, defined next to g_tasks
+
     // Serial console: "cal" start calibration, "caldef" erase saved calibration,
-    // "touch" toggle raw logging + on-screen cursor, "calshow" print calibration.
+    // "touch" toggle raw logging + on-screen cursor, "calshow" print calibration,
+    // "timing" print and reset per-task loop timing.
     void serial_command(const char *cmd) {
         if (!std::strcmp(cmd, "cal")) {
             touch_calibration_start();
@@ -393,8 +396,10 @@ namespace {
             Serial.printf("[TOUCH] debug %s\n", touch_debug ? "on" : "off");
         } else if (!std::strcmp(cmd, "calshow")) {
             touch_calibration_print("current", touch_cal);
+        } else if (!std::strcmp(cmd, "timing")) {
+            timing_print();
         } else if (cmd[0]) {
-            Serial.println("[CMD] cal | caldef | calshow | touch");
+            Serial.println("[CMD] cal | caldef | calshow | touch | timing");
         }
     }
 
@@ -504,13 +509,31 @@ namespace {
     }
 }
 
-static void hmi_update() {
-    refresh_can_timeouts();
-    gps_fix_feedback_update();
-    gps_lap_start_update();
-    page_button_update();
+// ---- Cluster -> VCU command task --------------------------------------------
+// The VCU treats the command as stale after 200 ms and then drops regen and TV.
+// In the shared loop a slow render/blit/print delayed it by up to 850 ms
+// (2026-10-01 logs: 55-82 gaps > 200 ms per minute), so switch reading and the
+// 0x1801D0C0 send run in their own task on core 1, above loop() priority.
+// TWAI transmit is thread-safe; bus-off reinstall waits out any 5 ms transmit.
+namespace {
+    constexpr uint32_t HMI_CMD_PERIOD_MS = 20;
+    constexpr uint32_t HMI_CMD_LATE_MS = 40;
+    constexpr UBaseType_t HMI_CMD_TASK_PRIORITY = 3; // loop() runs at 1
+    constexpr BaseType_t HMI_CMD_TASK_CORE = 1;      // same core as loop(), no BLE/Wi-Fi
+    volatile uint32_t hmi_cmd_interval_max_ms = 0;
+    volatile uint32_t hmi_cmd_late_count = 0;
+}
 
+static void hmi_command_tick() {
     const uint32_t now = millis();
+    static uint32_t last_send_ms = 0;
+    if (last_send_ms) {
+        const uint32_t interval = now - last_send_ms;
+        if (interval > hmi_cmd_interval_max_ms) hmi_cmd_interval_max_ms = interval;
+        if (interval > HMI_CMD_LATE_MS) ++hmi_cmd_late_count;
+    }
+    last_send_ms = now;
+
     HmiSwitches sw;
     sw.paddock       = digitalRead(board_pins::PADDOCK_SWITCH) == LOW;
     sw.tc_enabled    = digitalRead(board_pins::TV_SWITCH) == LOW;
@@ -518,15 +541,30 @@ static void hmi_update() {
     sw.regen_bit1 = debounce_active_low(regen_bit1_input, board_pins::REGEN_BIT1, now);
     sw.debug_enabled = false; // PCB V3 has no Debug switch input.
     ClusterCommand cmd = hmi_compute(sw);
-    if (!state.gear_from_can) {
-        state.gear = 0;
-    }
     state.paddock = cmd.paddock;
     state.tc_enabled = cmd.tc_enabled;
     state.regen_level = cmd.regen_level;
     state.debug_enabled = cmd.debug_enabled;
     state.reset_req  = false;
     can_bus::send_command(cmd);
+}
+
+static void hmi_command_task(void *) {
+    TickType_t wake = xTaskGetTickCount();
+    for (;;) {
+        hmi_command_tick();
+        vTaskDelayUntil(&wake, pdMS_TO_TICKS(HMI_CMD_PERIOD_MS));
+    }
+}
+
+static void hmi_update() {
+    refresh_can_timeouts();
+    gps_fix_feedback_update();
+    gps_lap_start_update();
+    page_button_update();
+    if (!state.gear_from_can) {
+        state.gear = 0;
+    }
 }
 
 static void vess_update() {
@@ -656,22 +694,117 @@ static void display_update() {
     }
 }
 
+// ---- loop timing diagnostics -------------------------------------------------
+// Longest run per scheduler task and longest main-loop stall, per window.
+// Read with the serial command "timing" and broadcast once a second on
+// 0x18FAFFC0 so drive logs show what blocks the loop. All of it runs in loop().
+namespace {
+    constexpr int TIMED_TASKS = 16;
+    const char *const TASK_NAMES[TIMED_TASKS] = {
+        "can_rx_update",
+        "gps_update",
+        "bms_can_tx_update",
+        "gnss_position_can_tx_update",
+        "gnss_status_can_tx_update",
+        "gnss_speed_can_tx_update",
+        "lap_can_tx_update",
+        "reset_report_can_tx_update",
+        "start_input_update",
+        "hmi_update",
+        "touch_update",
+        "serial_update",
+        "vess_update",
+        "diagnostics_update",
+        "display_update",
+        "timing_can_tx_update",
+    };
+    struct TaskTiming { uint32_t max_us = 0, total_us = 0, runs = 0; };
+    TaskTiming task_timing[TIMED_TASKS];      // serial window
+    uint32_t task_max_us_can[TIMED_TASKS];    // 1 s CAN window
+    uint32_t loop_stall_max_us = 0, loop_stall_max_us_can = 0;
+    uint32_t can_rx_last_us = 0;
+
+    template <void (*Fn)(), int Idx>
+    void timed() {
+        const uint32_t start = micros();
+        if (Idx == 0) {   // can_rx_update, due every 5 ms: its gaps are loop stalls
+            if (can_rx_last_us) {
+                const uint32_t gap = start - can_rx_last_us;
+                if (gap > loop_stall_max_us) loop_stall_max_us = gap;
+                if (gap > loop_stall_max_us_can) loop_stall_max_us_can = gap;
+            }
+            can_rx_last_us = start;
+        }
+        Fn();
+        const uint32_t took = micros() - start;
+        TaskTiming &t = task_timing[Idx];
+        if (took > t.max_us) t.max_us = took;
+        t.total_us += took;
+        ++t.runs;
+        if (took > task_max_us_can[Idx]) task_max_us_can[Idx] = took;
+    }
+
+    uint16_t ms_u16(uint32_t us) {
+        const uint32_t ms = (us + 500U) / 1000U;
+        return ms > 0xFFFFU ? 0xFFFF : static_cast<uint16_t>(ms);
+    }
+
+    void timing_print() {
+        Serial.printf("[TIMING] loop stall max %.1f ms, cmd interval max %lu ms, late %lu\n",
+                      loop_stall_max_us / 1000.0f,
+                      static_cast<unsigned long>(hmi_cmd_interval_max_ms),
+                      static_cast<unsigned long>(hmi_cmd_late_count));
+        for (int i = 0; i < TIMED_TASKS; ++i) {
+            const TaskTiming &t = task_timing[i];
+            Serial.printf("  %-28s max %7.1f ms  avg %6.2f ms  runs %lu\n", TASK_NAMES[i],
+                          t.max_us / 1000.0f, t.runs ? t.total_us / 1000.0f / t.runs : 0.0f,
+                          static_cast<unsigned long>(t.runs));
+            task_timing[i] = TaskTiming{};
+        }
+        loop_stall_max_us = 0;
+    }
+}
+
+static void timing_can_tx_update() {
+    static uint8_t life = 0;
+    int worst = 0;
+    for (int i = 1; i < TIMED_TASKS; ++i)
+        if (task_max_us_can[i] > task_max_us_can[worst]) worst = i;
+    const uint16_t worst_ms = ms_u16(task_max_us_can[worst]);
+    const uint16_t stall_ms = ms_u16(loop_stall_max_us_can);
+    const uint32_t interval = hmi_cmd_interval_max_ms;
+    const uint32_t late = hmi_cmd_late_count;
+    uint8_t d[8];
+    d[0] = static_cast<uint8_t>(worst);
+    d[1] = worst_ms & 0xFF; d[2] = worst_ms >> 8;
+    d[3] = stall_ms & 0xFF; d[4] = stall_ms >> 8;
+    d[5] = interval > 255U ? 255 : static_cast<uint8_t>(interval);
+    d[6] = late > 255U ? 255 : static_cast<uint8_t>(late);
+    d[7] = life++;
+    can_bus::send_loop_timing(d);
+    for (int i = 0; i < TIMED_TASKS; ++i) task_max_us_can[i] = 0;
+    loop_stall_max_us_can = 0;
+    hmi_cmd_interval_max_ms = 0;
+    hmi_cmd_late_count = 0;
+}
+
 Task g_tasks[] = {
-    { can_rx_update,   5, 0 },   // 200 Hz drain
-    { gps_update,     20, 0 },   // 50 Hz UART drain
-    { bms_can_tx_update, 100, 0 }, // 10 Hz BMS telemetry to logger/TMA-1
-    { gnss_position_can_tx_update, 20, 0 }, // event-driven: send once per new RMC fix
-    { gnss_status_can_tx_update, 200, 0 },  // 5 Hz GNSS/RTK status telemetry
-    { gnss_speed_can_tx_update, 20, 0 }, // event-driven: one frame per valid/invalid RMC
-    { lap_can_tx_update, 200, 0 },          // 5 Hz lap telemetry
-    { reset_report_can_tx_update, 1000, 0 }, // 1 Hz reset cause to logger
-    { start_input_update, 5, 0 },           // 200 Hz PCB V3 START presence monitor
-    { hmi_update,     20, 0 },   // 50 Hz
-    { touch_update,   10, 0 },   // 100 Hz XPT2046 poll (debounce needs several samples per press)
-    { serial_update,  50, 0 },   // 20 Hz serial console (touch calibration commands)
-    { vess_update,    20, 0 },   // 50 Hz VESS throttle-to-PWM output
-    { diagnostics_update, 20, 0 }, // observe validity/edges; numeric history sampled at 2 Hz
-    { display_update, 50, 0 },   // 20 Hz target; independent of history sampling
+    { timed<can_rx_update, 0>,   5, 0 },   // 200 Hz drain
+    { timed<gps_update, 1>,     20, 0 },   // 50 Hz UART drain
+    { timed<bms_can_tx_update, 2>, 100, 0 }, // 10 Hz BMS telemetry to logger/TMA-1
+    { timed<gnss_position_can_tx_update, 3>, 20, 0 }, // event-driven: send once per new RMC fix
+    { timed<gnss_status_can_tx_update, 4>, 200, 0 },  // 5 Hz GNSS/RTK status telemetry
+    { timed<gnss_speed_can_tx_update, 5>, 20, 0 }, // event-driven: one frame per valid/invalid RMC
+    { timed<lap_can_tx_update, 6>, 200, 0 },          // 5 Hz lap telemetry
+    { timed<reset_report_can_tx_update, 7>, 1000, 0 }, // 1 Hz reset cause to logger
+    { timed<start_input_update, 8>, 5, 0 },           // 200 Hz PCB V3 START presence monitor
+    { timed<hmi_update, 9>,     20, 0 },   // 50 Hz
+    { timed<touch_update, 10>,   10, 0 },   // 100 Hz XPT2046 poll (debounce needs several samples per press)
+    { timed<serial_update, 11>,  50, 0 },   // 20 Hz serial console (touch calibration commands)
+    { timed<vess_update, 12>,    20, 0 },   // 50 Hz VESS throttle-to-PWM output
+    { timed<diagnostics_update, 13>, 20, 0 }, // observe validity/edges; numeric history sampled at 2 Hz
+    { timed<display_update, 14>, 50, 0 },   // 20 Hz target; independent of history sampling
+    { timed<timing_can_tx_update, 15>, 1000, 0 }, // 1 Hz loop timing to logger
 };
 const int G_TASK_COUNT = sizeof(g_tasks) / sizeof(g_tasks[0]);
 
@@ -716,5 +849,7 @@ void modules_init() {
     gps_laptimer::begin();
     bms_ble::start_task(); // own task: BLE scan/connect must not stall this loop
     ntrip::start_task(); // own task: Wi-Fi/TCP retries must not stall this loop
+    xTaskCreatePinnedToCore(hmi_command_task, "hmi_cmd", 4096, nullptr,
+                            HMI_CMD_TASK_PRIORITY, nullptr, HMI_CMD_TASK_CORE);
 }
 

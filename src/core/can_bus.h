@@ -18,4 +18,5 @@ namespace can_bus {
     void send_lap_time();                    // encode -> 0x18F7FFC0
     void send_reset_report();                // encode -> 0x1CFDFFC0, 1 Hz
     void send_lap_status(bool timer_running);// encode -> 0x18F8FFC0
+    void send_loop_timing(const uint8_t data[8]); // raw -> 0x18FAFFC0, 1 Hz
 }

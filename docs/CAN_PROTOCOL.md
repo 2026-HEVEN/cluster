@@ -78,6 +78,7 @@
 | Cluster → TMA-1/logger | BMS 상태 요약 | `0x18F3FFC0` (신규) | — | 100ms | 6 |
 | Cluster → TMA-1/logger | BMS 상세 요약 | `0x18F4FFC0` (신규) | — | 100ms | 6 |
 | Cluster → TMA-1/logger | GNSS Ground Speed + RTK 품질 | `0x18F9FFC0` (신규) | — | 새 RMC마다 | 6 |
+| Cluster → logger | 루프 타이밍 진단 | `0x18FAFFC0` (신규) | — | 1s | 6 |
 
 > ID에서 PS(목적지)·SA(송신)만 컨트롤러별로 바뀜. 위 표의 ID는 `PF<<16 | PS<<8 | SA`로 조립됨(+ Priority).
 
@@ -272,6 +273,24 @@
 
 Monolith에서 실제 속도 채널은 Byte0~1에 multiplier `0.01`, offset `0`, unsigned, little-endian을 적용한다. 데이터 품질 확인용 bit decoder를 별도로 추가하고, 분석 시 `Speed Valid=1`인 구간을 사용한다. RTK 기반 구간만 보려면 `RTK FIXED=1`을 추가 조건으로 사용한다.
 
+
+---
+### 5.13 Cluster → logger : 루프 타이밍 진단 `0x18FAFFC0` (HEVEN 정의) · 1 Hz
+
+> 메인 루프가 오래 막히면 화면·터치·CAN 수신이 늦어진다. 원인 작업을 주행 로그에서 찾기 위한 진단 프레임이다.
+> 모든 값은 직전 프레임 이후 1초 창의 값이며, 송신 후 초기화된다.
+> 커맨드 `0x1801D0C0`은 루프가 아니라 전용 태스크(코어 1, 우선순위 3, 20ms)에서 송신한다. 그래서 루프가 막혀도 커맨드 주기는 유지되어야 하며, Byte5~6으로 이를 확인한다.
+
+| 바이트 | 항목 | 분해능/의미 |
+|--------|------|-------------|
+| 0 | 가장 오래 걸린 스케줄러 작업 번호 | `g_tasks` 순서(0=can_rx, 1=gps, … 14=display, 15=이 프레임) |
+| 1~2 | 그 작업의 최장 실행시간 | uint16 little-endian, 1 ms/bit |
+| 3~4 | 최장 루프 정체 | uint16 little-endian, 1 ms/bit. 200 Hz CAN 수신 작업 사이 최대 간격 |
+| 5 | 커맨드 최장 송신 간격 | uint8, 1 ms/bit, 255 포화 |
+| 6 | 40 ms 넘게 늦은 커맨드 수 | uint8, 255 포화 |
+| 7 | Life counter | 프레임 송신마다 1 증가 |
+
+시리얼 콘솔 `timing` 명령은 작업별 최장·평균 실행시간과 실행 횟수를 출력하고 초기화한다.
 ---
 
 ## 6. 핸드셰이크 & 타임아웃 (EZkontrol 규칙)

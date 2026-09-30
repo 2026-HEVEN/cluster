@@ -64,6 +64,13 @@ constexpr uint32_t CAN_ID_CLUSTER_GNSS_RTK_STATUS = 0x18F6FFC0;
 constexpr uint32_t CAN_ID_CLUSTER_LAP_TIME = 0x18F7FFC0;
 constexpr uint32_t CAN_ID_CLUSTER_LAP_STATUS = 0x18F8FFC0;
 constexpr uint32_t CAN_ID_CLUSTER_GNSS_SPEED = 0x18F9FFC0;
+// Cluster -> logger loop timing diagnostics, 1 Hz. HEVEN-defined.
+// Every field covers the 1 s window since the previous frame.
+// b0 slowest scheduler task index (g_tasks order)  b1-2 its longest run, ms
+// b3-4 longest main-loop stall, ms (gap between 200 Hz CAN drains)
+// b5 longest 0x1801D0C0 send interval, ms (saturating)
+// b6 command sends later than 40 ms (saturating)  b7 life
+constexpr uint32_t CAN_ID_CLUSTER_LOOP_TIMING = 0x18FAFFC0;
 
 // Node reset report, same layout on every ESP32 node (0x1CFDFF00 | SA), 1 s.
 // Repeated so a logger that rebooted at the same moment still records it.

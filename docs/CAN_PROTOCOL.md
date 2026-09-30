@@ -360,3 +360,15 @@ VCU Car Check v1 계약은 별도 미러 헤더 `include/car_check_protocol.h`�
 - 이 파일과 `include/can_protocol.h`는 **글자 단위로 일치**해야 한다.
 - 수정 시: ① 이 문서 갱신 → ② 양 레포의 `can_protocol.h` 동기화 → ③ 변경 요약을 팀 공지.
 - 새 메시지 ID는 J1939 규칙(PF/PS/SA)에 맞게 할당하고 §4 표에 추가.
+
+### 노드 리셋 원인 보고 `0x1CFDFF00 | SA` · 1s (2026-09-30)
+
+VCU `0x1CFDFFD0`, Cluster `0x1CFDFFC0`, EM Gateway `0x1CFDFFC1`. Extended, DLC 8, Priority 7. 부팅 원인을 1초마다 반복 송신한다. 로거가 같은 순간 재부팅해도 다음 1초 안에 기록된다. monolith 로거는 CAN 대신 자기 SD에 시스템 이벤트 `RST:<원인>/<ROM 코드>`로 남긴다.
+
+| 바이트 | 항목 | 비고 |
+|---|---|---|
+| 0 | `esp_reset_reason()` | 1 POWERON, 3 SW, 4 PANIC, 5 INT_WDT, 6 TASK_WDT, 7 WDT, 9 BROWNOUT |
+| 1 | ROM 리셋 원인 (CPU0) | `esp_rom_get_reset_reason(0)`, 원인 세분(예: 15 RTCWDT_BROWN_OUT) |
+| 2~5 | 부팅 후 경과 ms | uint32 LE |
+| 6 | 전원 유지 중 리셋 횟수 | RTC no-init 메모리, POWERON이면 0, 255에서 포화 |
+| 7 | life | 송신마다 +1 |

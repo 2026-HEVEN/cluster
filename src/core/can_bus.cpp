@@ -27,6 +27,17 @@ namespace {
     uint8_t g_reset_reason = 0;
     uint8_t g_reset_rom_reason = 0;
 
+    // Bus-off is handled by reinstalling the driver, as in the VCU (vcu
+    // 0c27448): in ESP-IDF 4.4.x twai_initiate_recovery() zeroes tx_msg_count
+    // while a frame can still sit in the TX buffer, and the later TX interrupt
+    // trips assert(tx_msg_count >= 0) in twai.c. Without any recovery the
+    // Cluster stays silent after a bus-off until it is power-cycled. While
+    // g_twai_offline is set every transmit returns at once.
+    volatile bool g_twai_offline = false;
+    uint32_t g_twai_offline_ms = 0U;
+    uint32_t g_twai_bus_off_count = 0U;
+    constexpr uint32_t TWAI_REINSTALL_SETTLE_MS = 20U; // > every transmit wait (5 ms)
+
     void note_reset() {
         g_reset_reason = static_cast<uint8_t>(esp_reset_reason());
         g_reset_rom_reason = static_cast<uint8_t>(esp_rom_get_reset_reason(0));
@@ -42,17 +53,51 @@ namespace {
     }
 }
 
+namespace {
+    esp_err_t install_twai() {
+        twai_general_config_t g = TWAI_GENERAL_CONFIG_DEFAULT(
+            static_cast<gpio_num_t>(board_pins::CAN_TX),
+            static_cast<gpio_num_t>(board_pins::CAN_RX),
+            TWAI_MODE_NORMAL);
+        // Absorb telemetry bursts while the shared task renders/transfers an LCD frame.
+        g.rx_queue_len = 64;
+        twai_timing_config_t  t = TWAI_TIMING_CONFIG_250KBITS();
+        twai_filter_config_t  f = TWAI_FILTER_CONFIG_ACCEPT_ALL();
+        const esp_err_t err = twai_driver_install(&g, &t, &f);
+        return err == ESP_OK ? twai_start() : err;
+    }
+
+    // Bus-off: stop transmitting, let any in-flight transmit time out, then
+    // reinstall the driver. A fresh install also discards stale queued frames.
+    void recover_bus_off(uint32_t now) {
+        twai_status_info_t status;
+        if (!g_twai_offline && twai_get_status_info(&status) == ESP_OK &&
+            status.state == TWAI_STATE_BUS_OFF) {
+            g_twai_offline = true;
+            g_twai_offline_ms = now;
+            ++g_twai_bus_off_count;
+            Serial.printf("[CAN] TWAI bus-off #%lu, reinstalling driver\n",
+                          static_cast<unsigned long>(g_twai_bus_off_count));
+        }
+        if (!g_twai_offline || now - g_twai_offline_ms < TWAI_REINSTALL_SETTLE_MS) return;
+
+        const esp_err_t uninstall_result = twai_driver_uninstall();
+        const esp_err_t install_result = install_twai();
+        if (install_result == ESP_OK) {
+            g_twai_offline = false;
+            Serial.println("[CAN] TWAI reinstalled");
+        } else {
+            // Retry after another settle period rather than spin.
+            g_twai_offline_ms = now;
+            Serial.printf("[CAN] TWAI reinstall failed: uninstall %d install %d\n",
+                          static_cast<int>(uninstall_result),
+                          static_cast<int>(install_result));
+        }
+    }
+}
+
 void begin() {
-    twai_general_config_t g = TWAI_GENERAL_CONFIG_DEFAULT(
-        static_cast<gpio_num_t>(board_pins::CAN_TX),
-        static_cast<gpio_num_t>(board_pins::CAN_RX),
-        TWAI_MODE_NORMAL);
-    // Absorb telemetry bursts while the shared task renders/transfers an LCD frame.
-    g.rx_queue_len = 64;
-    twai_timing_config_t  t = TWAI_TIMING_CONFIG_250KBITS();
-    twai_filter_config_t  f = TWAI_FILTER_CONFIG_ACCEPT_ALL();
-    twai_driver_install(&g, &t, &f);
-    twai_start();
+    install_twai();
     note_reset();
 }
 
@@ -142,6 +187,7 @@ namespace {
         m.extd = 1;
         m.data_length_code = 8;
         for (int i = 0; i < 8; ++i) m.data[i] = data[i];
+        if (g_twai_offline) return;
         twai_transmit(&m, pdMS_TO_TICKS(5));
     }
 
@@ -225,6 +271,9 @@ namespace {
 }
 
 void poll_rx() {
+    recover_bus_off(millis());
+    if (g_twai_offline) return;
+
     twai_message_t m;
     while (twai_receive(&m, 0) == ESP_OK) {
         if (!m.extd || m.rtr || m.data_length_code != 8) continue;

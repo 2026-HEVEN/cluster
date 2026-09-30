@@ -155,8 +155,9 @@ namespace {
 
     ClusterBmsStatus snapshot_bms_status(uint32_t now) {
         ClusterBmsStatus bms;
+        // Written by the NimBLE notify callback; may be newer than `now`.
         const bool fresh = state.bms_last_rx_ms != 0 &&
-                           (now - state.bms_last_rx_ms) <= BMS_CAN_STALE_MS;
+                           (int32_t)(now - state.bms_last_rx_ms) <= (int32_t)BMS_CAN_STALE_MS;
         bms.valid = state.bms_ble_connected && fresh && state.soc_valid;
         bms.ble_connected = state.bms_ble_connected;
         bms.soc_pct = soc_percent();

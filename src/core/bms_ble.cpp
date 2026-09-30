@@ -11,6 +11,14 @@ constexpr uint32_t SCAN_RETRY_MS = 15000;
 constexpr uint32_t SUMMARY_POLL_MS = 1000;
 constexpr uint32_t STALE_MS = 5000;
 constexpr int SCAN_SECONDS = 1;
+// The 1 s scan, connect() and the 160 ms handshake all block. They run in
+// their own task so the display/CAN scheduler never stalls on them (bench
+// 2026-09-30: with the BMS link down the cluster went silent on CAN for
+// 1.1 s every 15 s). Notify callbacks already arrive on the NimBLE host task.
+constexpr uint32_t TASK_PERIOD_MS = 100;
+constexpr uint32_t TASK_STACK = 6144;
+constexpr UBaseType_t TASK_PRIORITY = 1;
+constexpr BaseType_t TASK_CORE = 0; // with the BLE host, away from loop()
 
 NimBLEUUID SVC("FFE0");
 NimBLEUUID CH_WR("FFE1");
@@ -20,16 +28,22 @@ NimBLEClient *client = nullptr;
 NimBLERemoteCharacteristic *write_ch = nullptr;
 uint32_t last_scan_ms = 0;
 uint32_t last_summary_poll_ms = 0;
-bool initialized = false;
 
 uint8_t frame_buf[64];
 int frame_len_used = 0;
+
+// bms_last_rx_ms is written from the NimBLE notify callback and may be a
+// few ms newer than `now`; unsigned `now - stamp` would wrap.
+bool summary_fresh(uint32_t now) {
+    const uint32_t stamp = state.bms_last_rx_ms;
+    return stamp != 0 && (int32_t)(now - stamp) <= (int32_t)STALE_MS;
+}
 
 void mark_disconnected() {
     write_ch = nullptr;
     frame_len_used = 0;
     state.bms_ble_connected = false;
-    if (millis() - state.bms_last_rx_ms > STALE_MS) {
+    if (!summary_fresh(millis())) {
         state.soc_valid = false;
     }
 }
@@ -171,18 +185,8 @@ bool scan_and_connect() {
 bool connected() {
     return client && client->isConnected() && write_ch;
 }
-}
-
-void begin() {
-    NimBLEDevice::init("");
-    NimBLEDevice::setPower(ESP_PWR_LVL_P9);
-    initialized = true;
-    last_scan_ms = millis() - SCAN_RETRY_MS;
-}
 
 void poll() {
-    if (!initialized) return;
-
     const uint32_t now = millis();
     if (!connected()) {
         mark_disconnected();
@@ -193,10 +197,9 @@ void poll() {
         return;
     }
 
-    const bool summary_fresh =
-        state.bms_last_rx_ms != 0 && now - state.bms_last_rx_ms <= STALE_MS;
-    state.bms_ble_connected = summary_fresh;
-    if (!summary_fresh) {
+    const bool fresh = summary_fresh(now);
+    state.bms_ble_connected = fresh;
+    if (!fresh) {
         state.soc_valid = false;
     }
 
@@ -204,5 +207,21 @@ void poll() {
         last_summary_poll_ms = now;
         poll_frame(0x2A);
     }
+}
+
+void task(void *) {
+    for (;;) {
+        poll();
+        vTaskDelay(pdMS_TO_TICKS(TASK_PERIOD_MS));
+    }
+}
+} // namespace
+
+void start_task() {
+    NimBLEDevice::init("");
+    NimBLEDevice::setPower(ESP_PWR_LVL_P9);
+    last_scan_ms = millis() - SCAN_RETRY_MS;
+    xTaskCreatePinnedToCore(task, "bms_ble", TASK_STACK, nullptr, TASK_PRIORITY,
+                            nullptr, TASK_CORE);
 }
 }

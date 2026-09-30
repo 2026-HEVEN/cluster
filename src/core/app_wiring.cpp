@@ -597,7 +597,6 @@ static void start_input_update() {
 
 static void can_rx_update() { can_bus::poll_rx(); }
 static void gps_update() { gps_laptimer::poll(); }
-static void bms_update() { bms_ble::poll(); }
 static void bms_can_tx_update() { can_bus::send_bms_status(); }
 static void gnss_position_can_tx_update() {
     const uint32_t seq = gps_laptimer::position_sequence();
@@ -678,7 +677,6 @@ static void display_update() {
 Task g_tasks[] = {
     { can_rx_update,   5, 0 },   // 200 Hz drain
     { gps_update,     20, 0 },   // 50 Hz UART drain
-    { bms_update,    100, 0 },   // 10 Hz BLE BMS state machine
     { bms_can_tx_update, 100, 0 }, // 10 Hz BMS telemetry to logger/TMA-1
     { gnss_position_can_tx_update, 20, 0 }, // event-driven: send once per new RMC fix
     { gnss_status_can_tx_update, 200, 0 },  // 5 Hz GNSS/RTK status telemetry
@@ -734,7 +732,7 @@ void modules_init() {
     regen_bit0_input.changed_ms = regen_bit1_input.changed_ms = now;
     start_input_candidate_since_ms = now;
     gps_laptimer::begin();
-    bms_ble::begin();
+    bms_ble::start_task(); // own task: BLE scan/connect must not stall this loop
     ntrip::start_task(); // own task: Wi-Fi/TCP retries must not stall this loop
 }
 

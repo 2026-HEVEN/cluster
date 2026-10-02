@@ -100,12 +100,7 @@ void check_snapshot(CheckSnapshot &d, uint32_t now) {
     row(d.vcu,9,"STEERING >","%s",car_check::quality_label(cc.steering_rx.quality(now,cc.steering.valid,cc.steering.validity_present)));
     row(d.vcu,10,"IMU >","%s",car_check::quality_label(cc.imu_rx.quality(now,cc.imu.yaw_valid&&cc.imu.accel_valid,cc.imu.validity_present)));
     if(state.start_input_valid) {
-        // START is sense-only on PCB V3. N here is a gear indication, not
-        // an HV relay permit or confirmation that the VCU has armed.
-        const char *neutral = !vcu || !state.gear_from_can ? "N WAIT" :
-            state.gear == 0 ? "N YES" : "N NO";
-        row(d.vcu,11,"START / N CHECK","%s %.2fV / %s",
-            on(state.start_input_present),state.start_input_mv/1000.0f,neutral);
+        row(d.vcu,11,"START INPUT","%s / ADC %.2fV",on(state.start_input_present),state.start_input_mv/1000.0f);
     } else {
         row(d.vcu,11,"START INPUT","-- WAIT");
     }

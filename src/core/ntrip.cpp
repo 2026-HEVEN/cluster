@@ -26,7 +26,7 @@ constexpr uint32_t NTRIP_HEADER_TIMEOUT_MS = 3000;
 constexpr uint32_t GGA_SEND_MS = 1000;
 constexpr uint32_t GGA_MAX_AGE_MS = 2000;
 constexpr uint32_t GGA_WARN_AGE_MS = 5000;
-constexpr uint32_t RTCM_TIMEOUT_MS = 5000;
+constexpr uint32_t RTCM_TIMEOUT_MS = 10000;
 constexpr uint32_t STATUS_LOG_MS = 2000;
 constexpr size_t RTCM_BUFFER_SIZE = 256;
 

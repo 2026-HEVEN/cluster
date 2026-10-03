@@ -181,14 +181,14 @@ namespace {
         }
     }
 
-    void transmit_ext(uint32_t id, const uint8_t data[8]) {
+    void transmit_ext(uint32_t id, const uint8_t data[8], uint32_t wait_ms = 5) {
         twai_message_t m = {};
         m.identifier = id;
         m.extd = 1;
         m.data_length_code = 8;
         for (int i = 0; i < 8; ++i) m.data[i] = data[i];
         if (g_twai_offline) return;
-        twai_transmit(&m, pdMS_TO_TICKS(5));
+        twai_transmit(&m, pdMS_TO_TICKS(wait_ms));
     }
 
     uint8_t soc_percent() {
@@ -431,6 +431,44 @@ void send_lap_status(bool timer_running) {
     lap.life = life++;
     encode_cluster_lap_status(lap, data);
     transmit_ext(CAN_ID_CLUSTER_LAP_STATUS, data);
+}
+
+void send_lap_history(uint8_t current_lap_number, bool timer_running,
+                      bool timer_paused) {
+    static ClusterLapHistory history;
+    static uint8_t life = 0;
+    static uint32_t active_send_ms = 0;
+    const uint32_t now = millis();
+
+    ClusterLapHistoryInput input;
+    input.current_lap_number = current_lap_number;
+    input.completed_lap_count = state.lap_count;
+    input.current_lap_ms = state.current_lap_ms;
+    input.last_lap_ms = state.last_lap_ms;
+    input.current_battery_used_x10 = state.current_lap_battery_used_x10;
+    input.last_battery_used_x10 = state.last_lap_battery_used_x10;
+    input.current_battery_valid = state.current_lap_battery_valid;
+    input.last_battery_valid = state.last_lap_battery_valid;
+    input.timer_running = timer_running;
+    input.timer_paused = timer_paused;
+    history.update(input);
+
+    auto send = [&](ClusterLapHistoryFrame &frame) {
+        uint8_t data[8];
+        frame.life = life++;
+        encode_cluster_lap_history(frame, data);
+        transmit_ext(CAN_ID_CLUSTER_LAP_HISTORY, data, 0);
+        encode_cluster_lap_battery(frame, data);
+        transmit_ext(CAN_ID_CLUSTER_LAP_BATTERY, data, 0);
+    };
+
+    ClusterLapHistoryFrame frame;
+    if (now - active_send_ms >= 200) {
+        active_send_ms = now;
+        if (history.take_transition_frame(frame)) send(frame);
+        if (history.active_frame(frame)) send(frame);
+    }
+    if (history.due_completed_frame(now, frame)) send(frame);
 }
 
 } // namespace can_bus

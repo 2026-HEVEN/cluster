@@ -638,8 +638,16 @@ static void gnss_speed_can_tx_update() {
 }
 static void reset_report_can_tx_update() { can_bus::send_reset_report(); }
 static void lap_can_tx_update() {
-    can_bus::send_lap_time();
-    can_bus::send_lap_status(gps_laptimer::timer_running());
+    static uint32_t last_snapshot_ms = 0;
+    const uint32_t now = millis();
+    if (now - last_snapshot_ms >= 200) {
+        last_snapshot_ms = now;
+        can_bus::send_lap_time();
+        can_bus::send_lap_status(gps_laptimer::timer_running());
+    }
+    can_bus::send_lap_history(gps_laptimer::current_lap_number(),
+                              gps_laptimer::timer_running(),
+                              gps_laptimer::timer_paused());
 }
 static void diagnostics_update() {
     const uint32_t now = millis();
@@ -672,7 +680,8 @@ static void display_update() {
     if (!warn && check_ui.page == CheckPage::Warning) check_ui.page = CheckPage::Menu;
     if (check_ui.page != CheckPage::Home) {
         static CheckSnapshot snapshot;
-        if (check_ui.page != CheckPage::Graph) check_snapshot(snapshot, millis());
+        if (check_ui.page != CheckPage::Graph || check_ui.graph == GraphKind::LapBattery)
+            check_snapshot(snapshot, millis());
         if (check_ui.page == CheckPage::Warning) collect_warnings(snapshot);
         check_draw(fb, check_ui, snapshot, diagnostic_history, diagnostic_values, millis());
     } else {
@@ -795,7 +804,7 @@ Task g_tasks[] = {
     { timed<gnss_position_can_tx_update, 3>, 20, 0 }, // event-driven: send once per new RMC fix
     { timed<gnss_status_can_tx_update, 4>, 200, 0 },  // 5 Hz GNSS/RTK status telemetry
     { timed<gnss_speed_can_tx_update, 5>, 20, 0 }, // event-driven: one frame per valid/invalid RMC
-    { timed<lap_can_tx_update, 6>, 200, 0 },          // 5 Hz lap telemetry
+    { timed<lap_can_tx_update, 6>, 5, 0 }, // spread completed laps; active/snapshots stay 5 Hz
     { timed<reset_report_can_tx_update, 7>, 1000, 0 }, // 1 Hz reset cause to logger
     { timed<start_input_update, 8>, 5, 0 },           // 200 Hz PCB V3 START presence monitor
     { timed<hmi_update, 9>,     20, 0 },   // 50 Hz

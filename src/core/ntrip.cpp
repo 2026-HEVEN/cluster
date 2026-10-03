@@ -20,9 +20,9 @@ constexpr UBaseType_t TASK_PRIORITY = 1;
 constexpr BaseType_t TASK_CORE = 0; // with the Wi-Fi stack, away from loop()
 constexpr size_t GGA_COPY_MAX = 96;
 constexpr uint32_t WIFI_RETRY_MS = 5000;
-constexpr uint32_t NTRIP_RECONNECT_MS = 5000;
-constexpr uint32_t NTRIP_CONNECT_TIMEOUT_MS = 1000;
-constexpr uint32_t NTRIP_HEADER_TIMEOUT_MS = 3000;
+constexpr uint32_t NTRIP_RECONNECT_MS = 10000;
+constexpr uint32_t NTRIP_CONNECT_TIMEOUT_MS = 3000;
+constexpr uint32_t NTRIP_HEADER_TIMEOUT_MS = 8000;
 constexpr uint32_t GGA_SEND_MS = 1000;
 constexpr uint32_t GGA_MAX_AGE_MS = 2000;
 constexpr uint32_t GGA_WARN_AGE_MS = 5000;
@@ -33,6 +33,7 @@ constexpr size_t RTCM_BUFFER_SIZE = 256;
 enum class NtripStatus : uint8_t {
     Disabled,
     WifiWait,
+    NoGga,
     TcpWait,
     TcpFail,
     HeaderWait,
@@ -58,6 +59,7 @@ volatile uint32_t last_rtcm_time_ms = 0;
 bool wifi_connected_logged = false;
 bool ntrip_connected_logged = false;
 bool wifi_disconnected_logged = false;
+bool no_gga_logged = false;
 bool gga_stale_logged = false;
 bool rtcm_timeout_logged = false;
 NtripStatus status = NtripStatus::WifiWait;
@@ -142,6 +144,17 @@ void write_gga_line(const char *gga, uint32_t now, const char *label) {
 void connect_ntrip(uint32_t now) {
     if (WiFi.status() != WL_CONNECTED) return;
     if (client.connected()) return;
+
+    const char *gga = fresh_gga(now);
+    if (!gga) {
+        status = NtripStatus::NoGga;
+        if (!no_gga_logged) {
+            Serial.println("[NTRIP] NO GGA: waiting for a fresh GGA sentence");
+            no_gga_logged = true;
+        }
+        return;
+    }
+    no_gga_logged = false;
     if (now - last_ntrip_attempt_ms < NTRIP_RECONNECT_MS) return;
 
     last_ntrip_attempt_ms = now;
@@ -157,14 +170,13 @@ void connect_ntrip(uint32_t now) {
     if (!client.connect(ntrip_config::HOST, ntrip_config::PORT, NTRIP_CONNECT_TIMEOUT_MS)) {
         status = NtripStatus::TcpFail;
         Serial.println("[NTRIP] Connection failed");
-        Serial.println("[NTRIP] Retry in 5 sec");
+        Serial.println("[NTRIP] Retry in 10 sec");
         return;
     }
     status = NtripStatus::HeaderWait;
     header_wait_start_ms = now;
     Serial.println("[NTRIP] TCP connected, waiting header");
 
-    const char *gga = fresh_gga(now);
     String request = "GET /";
     request += ntrip_config::MOUNTPOINT;
     request += " HTTP/1.1\r\n";
@@ -210,7 +222,7 @@ bool header_has_success() {
 void close_bad_stream() {
     Serial.print("[NTRIP] Bad caster response: ");
     Serial.println(header_buffer);
-    Serial.println("[NTRIP] Retry in 5 sec");
+    Serial.println("[NTRIP] Retry in 10 sec");
     close_stream();
     status = NtripStatus::BadResponse;
 }
@@ -294,7 +306,7 @@ void check_timeouts(uint32_t now) {
     if (rtcm_missing) {
         if (!rtcm_timeout_logged) {
             Serial.println("[NTRIP] WARNING: RTCM timeout");
-            Serial.println("[NTRIP] Retry in 5 sec");
+            Serial.println("[NTRIP] Retry in 10 sec");
             rtcm_timeout_logged = true;
         }
         close_stream();
@@ -310,6 +322,7 @@ const char *status_text() {
     switch (status) {
     case NtripStatus::Disabled: return "NTRIP OFF";
     case NtripStatus::WifiWait: return "WIFI WAIT";
+    case NtripStatus::NoGga: return "NO GGA";
     case NtripStatus::TcpWait: return "TCP WAIT";
     case NtripStatus::TcpFail: return "TCP FAIL";
     case NtripStatus::HeaderWait: return "HDR WAIT";
@@ -407,9 +420,10 @@ void poll() {
     connect_ntrip(now);
 
     if (!client.connected()) {
-        if (status == NtripStatus::HeaderWait) {
+        if (status == NtripStatus::HeaderWait || stream_ok ||
+            status == NtripStatus::Connected) {
             status = NtripStatus::TcpDrop;
-            Serial.println("[NTRIP] TCP dropped before caster header");
+            Serial.println("[NTRIP] TCP DROP: caster connection closed");
         }
         reset_stream_state();
     } else if (!header_complete) {

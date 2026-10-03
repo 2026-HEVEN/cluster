@@ -5,6 +5,7 @@
 #include <cstdio>
 #include <cstdarg>
 #include <cmath>
+#include <algorithm>
 
 namespace {
 constexpr uint32_t HOME_SPEED_INVALID_HOLD_MS=1000;
@@ -65,18 +66,18 @@ void check_snapshot(CheckSnapshot &d, uint32_t now) {
         }
     }
     const bool bms=state.bms_ble_connected&&fresh(state.bms_last_rx_ms,now,5000);
-    const bool em=state.em_record_seen&&now-state.em_record_last_ms<=500;
-    row(d.power,0,"BMS / EM","%s / %s",bms?"LIVE":"WAIT",em?"LIVE":"WAIT");
-    const char *pkeys[]={"BMS SOC","BMS VOLTAGE","BMS CURRENT","BMS TEMP","EM HV VOLTAGE","EM LV VOLTAGE","EM HV CURRENT","EM CPU TEMP"};
-    const float pvalues[]={state.soc*100,state.bms_pack_voltage,state.bms_current,static_cast<float>(state.bms_temp_c),state.em_hv_decivolts/10.0f,state.em_lv_centivolts/100.0f,state.em_current_deciamps/10.0f,state.em_cpu_centidegrees/100.0f};
-    const char *units[]={"%","V","A","C","V","V","A","C"};
-    for(int i=0;i<8;++i) {
-        row(d.power,i+1,pkeys[i],"");
-        value(d.power[i+1][1],25,i<4 ? bms&&(i!=0||state.soc_valid) : em,pvalues[i],units[i],i==5?2:1);
-    }
-    row(d.power,9,"BMS REMAIN / Ah",bms?"%.2f":"-- WAIT",state.bms_remaining_mah/1000.0);
-    row(d.power,10,"BMS SOH / %",bms?"%u":"-- WAIT",state.bms_soh);
-    row(d.power,11,"BMS CYCLES",bms?"%u":"-- WAIT",state.bms_cycles);
+    row(d.power,0,"BMS LINK","%s",bms?"LIVE":"WAIT");
+    row(d.power,1,"BMS SOC",bms&&state.soc_valid?"%.0f %%":"-- WAIT",state.soc*100.0f);
+    row(d.power,2,"PACK VOLTAGE","");value(d.power[2][1],25,bms,state.bms_pack_voltage,"V");
+    row(d.power,3,"PACK CURRENT","");value(d.power[3][1],25,bms,state.bms_current,"A");
+    row(d.power,4,"PACK POWER",bms?"%.2f kW":"-- WAIT",state.bms_pack_voltage*state.bms_current/1000.0f);
+    row(d.power,5,"PACK TEMP",bms?"%d C":"-- WAIT",state.bms_temp_c);
+    row(d.power,6,"REMAIN / Ah",bms?"%.2f":"-- WAIT",state.bms_remaining_mah/1000.0);
+    row(d.power,7,"SOH / %",bms?"%u":"-- WAIT",state.bms_soh);
+    row(d.power,8,"CYCLES",bms?"%u":"-- WAIT",state.bms_cycles);
+    row(d.power,9,"SOURCE","BMS BLE");
+    row(d.power,10,"","");
+    row(d.power,11,"","");
     const bool vcu=fresh(state.vcu_cluster_status_last_ms,now,300);
     const bool wss=state.wss_valid&&fresh(state.vehicle_speed_last_rx_ms,now,300);
     row(d.vcu,0,"VCU LINK","%s",link(state.vcu_cluster_status_last_ms,now,300));
@@ -157,10 +158,23 @@ void check_snapshot(CheckSnapshot &d, uint32_t now) {
     time_row(d.gps,9,"LAST LAP",state.last_lap_ms);
     time_row(d.gps,10,"BEST LAP",state.best_lap_ms);
     row(d.gps,11,"PPS","%s",link(state.gps_pps_last_ms,now,2000));
+    for(size_t i=0;i<LAP_BATTERY_SLOTS;++i) {
+        d.lap_battery_x10[i]=state.lap_battery_used_x10[i];
+        d.lap_battery_valid[i]=state.lap_battery_valid[i];
+    }
+    const uint8_t active_lap=gps_laptimer::current_lap_number();
+    d.lap_battery_active=state.lap_count<99?active_lap:0;
+    d.lap_battery_count=std::max<uint8_t>(state.lap_count,d.lap_battery_active);
+    if(d.lap_battery_active>=1 && d.lap_battery_active<=LAP_BATTERY_SLOTS) {
+        const size_t index=d.lap_battery_active-1;
+        d.lap_battery_x10[index]=state.current_lap_battery_used_x10;
+        d.lap_battery_valid[index]=state.current_lap_battery_valid;
+    }
     std::snprintf(d.summaries[0][0],24,"L %s",d.motor[0][1]);
     std::snprintf(d.summaries[0][1],24,"R %s",d.motor[0][2]);
     std::snprintf(d.summaries[1][0],24,"BMS %s",bms?"LIVE":"WAIT");
-    std::snprintf(d.summaries[1][1],24,"EM %s",em?"LIVE":"WAIT");
+    if(bms) std::snprintf(d.summaries[1][1],24,"PACK %.1f V",state.bms_pack_voltage);
+    else std::snprintf(d.summaries[1][1],24,"PACK -- V");
     std::snprintf(d.summaries[2][0],24,"VCU %s",vcu?"LIVE":"WAIT");
     std::snprintf(d.summaries[2][1],24,"WSS %s",wss?"LIVE":"WAIT");
     std::snprintf(d.summaries[3][0],24,"%.23s",d.gps[0][1]);
@@ -172,14 +186,13 @@ void check_observe(DiagnosticHistory &h,TelemetryValues &v,uint32_t now) {
     const bool l=fresh(state.controller_l_fb1_last_ms,now,300),r=fresh(state.controller_r_fb1_last_ms,now,300);
     const bool l2=fresh(state.controller_l_fb2_last_ms,now,300),r2=fresh(state.controller_r_fb2_last_ms,now,300);
     const bool b=state.bms_ble_connected&&fresh(state.bms_last_rx_ms,now,5000);
-    const bool em=state.em_record_seen&&now-state.em_record_last_ms<=500;
     const bool wss=state.wss_valid&&fresh(state.vehicle_speed_last_rx_ms,now,300);
     v.set(Channel::Wss,state.wss_kph,wss);
     v.set(Channel::BusL,state.bus_current,l);v.set(Channel::BusR,state.bus_current_r,r);
     v.set(Channel::PhaseL,state.phase_current,l);v.set(Channel::PhaseR,state.phase_current_r,r);
     v.set(Channel::VoltL,state.bus_voltage,l);v.set(Channel::VoltR,state.bus_voltage_r,r);
-    v.set(Channel::EmHv,state.em_hv_decivolts/10.0f,em);v.set(Channel::EmLv,state.em_lv_centivolts/100.0f,em);
-    v.set(Channel::EmA,state.em_current_deciamps/10.0f,em);v.set(Channel::BmsV,state.bms_pack_voltage,b);
+    v.set(Channel::BmsV,state.bms_pack_voltage,b);v.set(Channel::BmsA,state.bms_current,b);
+    v.set(Channel::BmsPower,state.bms_pack_voltage*state.bms_current/1000.0f,b);
     v.set(Channel::Throttle,state.throttle_pct,state.throttle_valid&&fresh(state.throttle_last_rx_ms,now,300));
     if(fresh(gps_laptimer::last_gga_ms(),now,3000)) {
         switch(gps_laptimer::fix_quality()) {
@@ -194,7 +207,7 @@ void check_observe(DiagnosticHistory &h,TelemetryValues &v,uint32_t now) {
     const car_check::Reception *rx[]={&c.steering_rx,&c.imu_rx,&c.wheels_rx,&c.control_rx};
     const LinkId ids[]={LinkId::Steering,LinkId::Imu,LinkId::Wheels,LinkId::Control};
     for(int i=0;i<4;++i) h.connection(ids[i],rx[i]->seen&&now-rx[i]->last_ms<=300,now);
-    h.connection(LinkId::Bms,b,now);h.connection(LinkId::Em,em,now);
+    h.connection(LinkId::Bms,b,now);
     h.connection(LinkId::Gps,fresh(state.gps_last_rx_ms,now,3000),now);
     h.connection(LinkId::Wifi,ntrip::wifi_connected(),now);h.connection(LinkId::Ntrip,ntrip::connected(),now);
     h.connection(LinkId::Rtcm,fresh(ntrip::last_rtcm_ms(),now,5000),now);
@@ -214,10 +227,12 @@ HomeData check_home_snapshot(uint32_t now) {
     d.brake_valid=fresh(state.vcu_cluster_status_last_ms,now,300);
     d.brake_active=d.brake_valid&&state.brake;
     if(state.soc_valid&&state.bms_ble_connected&&fresh(state.bms_last_rx_ms,now,5000)) d.soc=std::lround(state.soc*100);
-    d.em_ok=state.em_record_seen&&now-state.em_record_last_ms<=500;
-    d.hv=state.em_hv_decivolts/10.0f;d.lv=state.em_lv_centivolts/100.0f;
-    const float em_current=state.em_current_deciamps/10.0f;
-    d.power_kw=std::fabs(d.hv*em_current)/1000;d.charging=em_current<0;
+    d.bms_ok=state.bms_ble_connected&&fresh(state.bms_last_rx_ms,now,5000);
+    d.hv=state.bms_pack_voltage;
     d.lap=gps_laptimer::current_lap_number();d.best_lap=state.best_lap_count;d.lap_ms=state.current_lap_ms;d.best_ms=state.best_lap_ms;
+    d.lap_battery_x10=state.current_lap_battery_used_x10;
+    d.last_lap_battery_x10=state.last_lap_battery_used_x10;
+    d.lap_battery_valid=state.current_lap_battery_valid;
+    d.last_lap_battery_valid=state.last_lap_battery_valid;
     return d;
 }

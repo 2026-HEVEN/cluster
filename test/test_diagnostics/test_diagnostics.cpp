@@ -143,7 +143,7 @@ void test_navigation_and_marker_contract(){
         TEST_ASSERT_TRUE(u.page==CheckPage::Graph);TEST_ASSERT_TRUE(u.graph==kind);
         u.tap(270,16,false);TEST_ASSERT_TRUE(u.page==p);
     }
-    TEST_ASSERT_EQUAL(10,count);
+    TEST_ASSERT_EQUAL(9,count);
     u.page=CheckPage::Vcu;u.tap(170,158,false);TEST_ASSERT_TRUE(u.page==CheckPage::Sensors);
     u.tap(270,16,false);u.tap(170,119,false);TEST_ASSERT_TRUE(u.page==CheckPage::Control);
     u.tap(170,201,false);TEST_ASSERT_TRUE(u.page==CheckPage::Reasons);
@@ -167,7 +167,7 @@ void test_disconnected_not_zero_ok(){
     TEST_ASSERT_EQUAL_STRING("-- WAIT",d.motor[1][1]);TEST_ASSERT_EQUAL_STRING("-- WAIT",d.motor[8][2]);
     TEST_ASSERT_EQUAL_STRING("-- WAIT",d.power[2][1]);TEST_ASSERT_EQUAL_STRING("-- WAIT",d.vcu[4][1]);
     TEST_ASSERT_EQUAL_STRING("-- -",d.sensors[0][1]);TEST_ASSERT_FALSE(d.control_valid);
-    HomeData home=check_home_snapshot(600000);TEST_ASSERT_EQUAL(-1,home.soc);TEST_ASSERT_FALSE(home.em_ok);
+    HomeData home=check_home_snapshot(600000);TEST_ASSERT_EQUAL(-1,home.soc);TEST_ASSERT_FALSE(home.bms_ok);
 }
 void test_independent_motor_frames(){
     state.controller_l_fb1_last_ms=599900;
@@ -236,23 +236,28 @@ void test_observer_fix_and_rtcm_independent(){
 }
 void test_graph_voltage_scaling_and_back_button(){
     DiagnosticHistory h;TelemetryValues v;CheckSnapshot d;FrameBuffer f;CheckUi u;
-    v.set(Channel::EmLv,13.4,true);h.observe(1000,v);v.set(Channel::EmLv,13.6,true);h.observe(1500,v);
-    u.page=CheckPage::Power;u.open_graph(GraphKind::EmLv);f.clear();check_draw(f,u,d,h,v,1500);
-    TEST_ASSERT_GREATER_THAN(12,u.graph_min);TEST_ASSERT_LESS_THAN(15,u.graph_max);
+    v.set(Channel::BmsV,53.4,true);h.observe(1000,v);v.set(Channel::BmsV,53.6,true);h.observe(1500,v);
+    u.page=CheckPage::Power;u.open_graph(GraphKind::BmsV);f.clear();check_draw(f,u,d,h,v,1500);
+    TEST_ASSERT_GREATER_THAN(51,u.graph_min);TEST_ASSERT_LESS_THAN(56,u.graph_max);
     TEST_ASSERT_TRUE(f.get(248,2));TEST_ASSERT_TRUE(f.get(317,31));
     u.tap(270,15,false);TEST_ASSERT_TRUE(u.page==CheckPage::Power);
     u.page=CheckPage::Links;f.clear();check_draw(f,u,d,h,v,1500);
     TEST_ASSERT_TRUE(f.get(248,2));TEST_ASSERT_TRUE(f.get(0,37));TEST_ASSERT_TRUE(f.get(0,218));
 }
-void test_em_power_and_soc_sources(){
-    state.em_record_seen=true;state.em_record_last_ms=600000;state.em_hv_decivolts=500;
-    state.em_lv_centivolts=1342;state.em_current_deciamps=-1000;
-    HomeData d=check_home_snapshot(600000);TEST_ASSERT_FLOAT_WITHIN(.001,5,d.power_kw);
-    TEST_ASSERT_TRUE(d.charging);
-    TEST_ASSERT_FLOAT_WITHIN(.001,13.42,d.lv);TEST_ASSERT_EQUAL(-1,d.soc);
+void test_bms_home_and_graph_sources(){
     state.soc=.7;state.soc_valid=true;state.bms_ble_connected=true;state.bms_last_rx_ms=600000;
-    d=check_home_snapshot(600000);TEST_ASSERT_EQUAL(70,d.soc);
-    d=check_home_snapshot(600501);TEST_ASSERT_FALSE(d.em_ok);
+    state.bms_pack_voltage=53.7f;state.bms_current=-10.0f;
+    state.current_lap_battery_used_x10=20;state.current_lap_battery_valid=true;
+    state.last_lap_battery_used_x10=30;state.last_lap_battery_valid=true;
+    HomeData d=check_home_snapshot(600000);TEST_ASSERT_EQUAL(70,d.soc);
+    TEST_ASSERT_TRUE(d.bms_ok);TEST_ASSERT_FLOAT_WITHIN(.001,53.7,d.hv);
+    TEST_ASSERT_TRUE(d.lap_battery_valid);TEST_ASSERT_EQUAL_UINT16(20,d.lap_battery_x10);
+    TEST_ASSERT_TRUE(d.last_lap_battery_valid);TEST_ASSERT_EQUAL_UINT16(30,d.last_lap_battery_x10);
+    DiagnosticHistory h;TelemetryValues v;check_observe(h,v,600000);
+    TEST_ASSERT_FLOAT_WITHIN(.001,53.7,v.get(Channel::BmsV));
+    TEST_ASSERT_FLOAT_WITHIN(.001,-10.0,v.get(Channel::BmsA));
+    TEST_ASSERT_FLOAT_WITHIN(.001,-.537,v.get(Channel::BmsPower));
+    d=check_home_snapshot(605001);TEST_ASSERT_FALSE(d.bms_ok);
 }
 void test_home_brake_status(){
     state.vcu_cluster_status_last_ms=600000;state.brake=true;
@@ -273,12 +278,12 @@ void test_home_hit_areas(){
     TEST_ASSERT_TRUE(u.graph==GraphKind::Wss);TEST_ASSERT_TRUE(u.graph_origin==CheckPage::Home);
     u.tap(270,16,false);TEST_ASSERT_TRUE(u.page==CheckPage::Home);
     u.tap(261,107,false);TEST_ASSERT_TRUE(u.page==CheckPage::Menu);
-    u.home();u.tap(0,138,false);TEST_ASSERT_TRUE(u.page==CheckPage::Graph);
-    TEST_ASSERT_TRUE(u.graph==GraphKind::EmA);TEST_ASSERT_TRUE(u.graph_origin==CheckPage::Home);
+    u.home();u.tap(0,138,false);TEST_ASSERT_TRUE(u.page==CheckPage::Menu);
+    u.home();u.tap(260,183,false);TEST_ASSERT_TRUE(u.page==CheckPage::Graph);
+    TEST_ASSERT_TRUE(u.graph==GraphKind::LapBattery);
+    u.tap(80,120,false);TEST_ASSERT_EQUAL_UINT(1,u.list_page);
+    u.tap(220,120,false);TEST_ASSERT_EQUAL_UINT(0,u.list_page);
     u.tap(270,16,false);TEST_ASSERT_TRUE(u.page==CheckPage::Home);
-    u.tap(275,183,false);TEST_ASSERT_TRUE(u.page==CheckPage::Graph);
-    u.tap(270,16,false);TEST_ASSERT_TRUE(u.page==CheckPage::Home);
-    u.tap(276,183,false);TEST_ASSERT_TRUE(u.page==CheckPage::Menu);
     u.home();u.tap(20,120,true);TEST_ASSERT_TRUE(u.page==CheckPage::Warning);
 }
 void test_back_and_car_check_navigation(){
@@ -305,13 +310,6 @@ void test_detail_rows_have_no_separators(){
         TEST_ASSERT_LESS_THAN(250,lit);
     }
 }
-void test_home_power_bar_direction(){
-    FrameBuffer f;HomeData d;d.em_ok=true;d.power_kw=5.0f;
-    d.charging=true;f.clear();check_home_draw(f,d,false);
-    TEST_ASSERT_TRUE(f.get(130,152));TEST_ASSERT_FALSE(f.get(218,152));TEST_ASSERT_TRUE(f.get(170,147));
-    d.charging=false;f.clear();check_home_draw(f,d,false);
-    TEST_ASSERT_FALSE(f.get(130,152));TEST_ASSERT_TRUE(f.get(218,152));TEST_ASSERT_TRUE(f.get(170,147));
-}
 void write_image(const char *name,const FrameBuffer &f,bool red=false){
     std::filesystem::create_directories(".tmp");char path[128];std::snprintf(path,sizeof(path),".tmp/ui_%s.ppm",name);
     FILE *out=std::fopen(path,"wb");TEST_ASSERT_NOT_NULL(out);std::fprintf(out,"P6\n320 240\n255\n");
@@ -335,6 +333,11 @@ void fixture(){
     state.wss_kph=32;state.wss_valid=true;state.vehicle_speed_last_rx_ms=599950;
     state.gps_fix_ok=true;state.gps_last_rx_ms=599950;state.gps_latitude=37.2951234;state.gps_longitude=126.9756789;
     state.gps_pps_last_ms=599900;state.lap_count=3;state.best_lap_count=1;state.current_lap_ms=85670;state.last_lap_ms=82770;state.best_lap_ms=80770;
+    state.current_lap_battery_used_x10=10;state.current_lap_battery_valid=true;
+    state.last_lap_battery_used_x10=20;state.last_lap_battery_valid=true;
+    state.lap_battery_used_x10[0]=20;state.lap_battery_valid[0]=true;
+    state.lap_battery_used_x10[1]=30;state.lap_battery_valid[1]=true;
+    state.lap_battery_used_x10[2]=20;state.lap_battery_valid[2]=true;
     uint8_t steer[]={0xFA,0,0,0,0,0,0x81,45},imu[]={0xE2,4,25,0,0xCE,0xFF,0x83,45};
     uint8_t wheels[]={0x3C,1,0x40,1,0x39,1,0x42,1},control[]={1,7,0x39,0,4,0,0,45};
     state.car_check.receive(car_check::STEERING_ID,steer,8,true,false,599950);
@@ -350,8 +353,8 @@ void test_render_production_screens(){
         v.set(Channel::BusL,35+28*wave,true);v.set(Channel::BusR,31+25*wave,!(t>575000&&t<579000));
         v.set(Channel::PhaseL,75+60*wave,true);v.set(Channel::PhaseR,65+50*wave,true);
         v.set(Channel::VoltL,54-1.5f*wave,true);v.set(Channel::VoltR,53.5f-wave,true);
-        v.set(Channel::EmHv,53.7f-wave,true);v.set(Channel::EmLv,13.4f+.2f*wave,true);
-        v.set(Channel::BmsV,53.7f-wave,true);v.set(Channel::EmA,40+60*wave,true);
+        v.set(Channel::BmsV,53.7f-wave,true);v.set(Channel::BmsA,40+60*wave,true);
+        v.set(Channel::BmsPower,(53.7f-wave)*(40+60*wave)/1000.0f,true);
         v.set(Channel::Throttle,45+35*wave,true);
         v.rtk=t<550000?2:t<560000?4:t<575000?5:t<582000?0:5;h.observe(t,v);
     }
@@ -365,16 +368,15 @@ void test_render_production_screens(){
     for(int i=0;i<10;++i){u.page=pages[i];u.list_page=0;f.clear();check_draw(f,u,d,h,v,600000);write_image(names[i],f);}
     u.page=CheckPage::Links;u.list_page=1;f.clear();check_draw(f,u,d,h,v,600000);write_image("links_2",f);
     u.page=CheckPage::Reasons;u.list_page=1;f.clear();check_draw(f,u,d,h,v,600000);write_image("reasons_2",f);
-    const GraphKind kinds[]={GraphKind::Wss,GraphKind::Bus,GraphKind::Phase,GraphKind::MotorV,GraphKind::EmHv,GraphKind::EmLv,GraphKind::BmsV,GraphKind::EmA,GraphKind::Throttle,GraphKind::Rtk};
-    const char *gnames[]={"graph_wss","graph_bus","graph_phase","graph_motor_v","graph_hv","graph_lv","graph_bms_v","graph_em_a","graph_throttle","graph_rtk"};
+    const GraphKind kinds[]={GraphKind::Wss,GraphKind::Bus,GraphKind::Phase,GraphKind::MotorV,GraphKind::BmsV,GraphKind::BmsA,GraphKind::BmsPower,GraphKind::Throttle,GraphKind::Rtk,GraphKind::LapBattery};
+    const char *gnames[]={"graph_wss","graph_bus","graph_phase","graph_motor_v","graph_bms_v","graph_bms_a","graph_bms_power","graph_throttle","graph_rtk","graph_lap_battery"};
     for(int i=0;i<10;++i){u.page=CheckPage::Power;u.open_graph(kinds[i]);f.clear();check_draw(f,u,d,h,v,600000);write_image(gnames[i],f);}
-    u.home();u.open_graph(GraphKind::EmA);f.clear();check_draw(f,u,d,h,v,600000);write_image("graph_power",f);
     d.warnings[0]="L MOTOR HOT";d.warnings[1]="R CAN TIMEOUT";d.warning_count=2;
     u.page=CheckPage::Warning;f.clear();check_draw(f,u,d,h,v,600000);write_image("warning",f,true);
     state=ClusterState{};check_snapshot(d,600000);u.page=CheckPage::Motor;f.clear();check_draw(f,u,d,h,v,600000);write_image("motor_wait",f,true);
     f.clear();check_home_draw(f,check_home_snapshot(600000),true);write_image("home_wait",f,true);
-    HomeData max;max.speed_ok=max.em_ok=max.throttle_ok=true;max.speed=6553.4f;max.hv=-3276.8f;max.lv=327.67f;max.soc=100;max.throttle=100;
-    max.lap=255;max.lap_ms=UINT32_MAX;max.best_ms=UINT32_MAX;max.power_kw=10736.7;
+    HomeData max;max.speed_ok=max.bms_ok=max.throttle_ok=true;max.speed=6553.4f;max.hv=999.9f;max.soc=100;max.throttle=100;
+    max.lap=255;max.lap_ms=UINT32_MAX;max.best_ms=UINT32_MAX;
     f.clear();check_home_draw(f,max,false);write_image("home_limits",f);
     std::printf("DiagnosticHistory host bytes: %zu\n",sizeof(h));
 }
@@ -388,6 +390,6 @@ int main(int,char**){
     RUN_TEST(test_disconnected_not_zero_ok);RUN_TEST(test_independent_motor_frames);RUN_TEST(test_drivetrain_latch_snapshot_and_history);RUN_TEST(test_wss_never_rpm_fallback);RUN_TEST(test_home_speed_holds_through_short_invalid);
     RUN_TEST(test_requests_distinct_and_no_pressure);RUN_TEST(test_sensor_quality_not_numeric_legacy);
     RUN_TEST(test_observer_fix_and_rtcm_independent);RUN_TEST(test_graph_voltage_scaling_and_back_button);
-    RUN_TEST(test_em_power_and_soc_sources);RUN_TEST(test_home_brake_status);RUN_TEST(test_home_hit_areas);RUN_TEST(test_back_and_car_check_navigation);RUN_TEST(test_detail_rows_have_no_separators);RUN_TEST(test_home_power_bar_direction);RUN_TEST(test_render_production_screens);
+    RUN_TEST(test_bms_home_and_graph_sources);RUN_TEST(test_home_brake_status);RUN_TEST(test_home_hit_areas);RUN_TEST(test_back_and_car_check_navigation);RUN_TEST(test_detail_rows_have_no_separators);RUN_TEST(test_render_production_screens);
     return UNITY_END();
 }

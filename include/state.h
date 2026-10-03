@@ -120,6 +120,14 @@ struct ClusterState {
     uint32_t last_lap_ms    = 0;
     uint8_t  best_lap_count = 0;
     uint32_t best_lap_ms    = 0;
+    // BMS SOC delta for each GPS lap, in 0.1 % units. The source BMS reports
+    // integer SOC, so the effective measurement resolution remains 1 %.
+    uint16_t current_lap_battery_used_x10 = 0;
+    uint16_t last_lap_battery_used_x10 = 0;
+    bool current_lap_battery_valid = false;
+    bool last_lap_battery_valid = false;
+    uint16_t lap_battery_used_x10[99]{};
+    bool lap_battery_valid[99]{};
 };
 
 extern ClusterState state;   // defined in core/app_wiring.cpp

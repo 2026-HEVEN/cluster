@@ -36,6 +36,11 @@ void test_state_defaults_safe(void) {
     TEST_ASSERT_EQUAL_UINT32(0, s.last_lap_ms);
     TEST_ASSERT_EQUAL_UINT8(0, s.best_lap_count);
     TEST_ASSERT_EQUAL_UINT32(0, s.best_lap_ms);
+    TEST_ASSERT_EQUAL_UINT16(0, s.current_lap_battery_used_x10);
+    TEST_ASSERT_FALSE(s.current_lap_battery_valid);
+    TEST_ASSERT_EQUAL_UINT16(0, s.last_lap_battery_used_x10);
+    TEST_ASSERT_FALSE(s.last_lap_battery_valid);
+    TEST_ASSERT_FALSE(s.lap_battery_valid[0]);
 }
 
 void setUp(void) {}

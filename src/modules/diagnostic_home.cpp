@@ -7,18 +7,6 @@ void bar(FrameBuffer &f,int x,int y,int w,int height,float ratio,bool valid) {
     fb_rect(f,x,y,w,height,false,true);
     if(valid) fb_rect(f,x+2,y+2,static_cast<int>((w-4)*std::max(0.0f,std::min(1.0f,ratio))),height-4,true,true);
 }
-void power_bar(FrameBuffer &f,int x,int y,int w,int height,float ratio,bool charging,bool valid) {
-    fb_rect(f,x,y,w,height,false,true);
-    const int center=x+w/2;
-    fb_vline(f,center,y,height,true);
-    if(!valid) return;
-    const float bounded=std::max(0.0f,std::min(1.0f,ratio));
-    const int half=center-(x+2);
-    const int fill=static_cast<int>(half*bounded);
-    if(fill<=0) return;
-    if(charging) fb_rect(f,center-fill,y+2,fill,height-4,true,true);
-    else fb_rect(f,center+1,y+2,fill,height-4,true,true);
-}
 void right_text(FrameBuffer &f,int right,int y,const char *text,int scale=1) {
     fb_text(f,right-static_cast<int>(std::strlen(text))*6*scale,y,text,scale);
 }
@@ -37,20 +25,22 @@ void check_home_draw(FrameBuffer &f,const HomeData &d,bool warning) {
     if(d.soc>=0) std::snprintf(b,sizeof(b),"%d%%",d.soc);else std::snprintf(b,sizeof(b),"--%%");
     int pct_x=304-static_cast<int>(std::strlen(b))*6;
     fb_text(f,pct_x,134,b,2);
-    right_text(f,316,162,"HV");right_text(f,316,190,"LV");
-    if(d.em_ok&&d.hv>=0.0f&&d.hv<1000.0f) std::snprintf(b,sizeof(b),"%.1f V",d.hv);else if(d.em_ok) std::snprintf(b,sizeof(b),"ERR V");else std::snprintf(b,sizeof(b),"-- V");
-    right_text(f,316,173,b);
-    if(d.em_ok&&d.lv>=0.0f&&d.lv<100.0f) std::snprintf(b,sizeof(b),"%.2f V",d.lv);else if(d.em_ok) std::snprintf(b,sizeof(b),"ERR V");else std::snprintf(b,sizeof(b),"-- V");
-    right_text(f,316,201,b);
+    right_text(f,316,162,"HV PACK");
+    if(d.bms_ok&&d.hv>=0.0f&&d.hv<1000.0f) std::snprintf(b,sizeof(b),"%.1f V",d.hv);else if(d.bms_ok) std::snprintf(b,sizeof(b),"ERR V");else std::snprintf(b,sizeof(b),"-- V");
+    right_text(f,316,177,b,2);
     if(d.throttle_ok) std::snprintf(b,sizeof(b),"THR %.0f%%",d.throttle);else std::snprintf(b,sizeof(b),"THR --");
-    fb_text(f,8,119,b,1);bar(f,72,114,196,18,d.throttle/100,d.throttle_ok);
-    if(d.em_ok) std::snprintf(b,sizeof(b),"%.2f kW",d.power_kw);else std::snprintf(b,sizeof(b),"-- kW");
-    fb_text(f,8,151,b,1);power_bar(f,72,146,196,18,d.power_kw/10,d.charging,d.em_ok);
-    fb_text(f,72,167,"CHR",1);fb_text(f,167,167,"0",1);right_text(f,268,167,"PWR");
+    fb_text(f,8,128,b,1);bar(f,72,123,196,20,d.throttle/100,d.throttle_ok);
     std::snprintf(b,sizeof(b),"L%u %lu:%02lu.%02lu",d.lap,static_cast<unsigned long>(d.lap_ms/60000),
         static_cast<unsigned long>(d.lap_ms/1000%60),static_cast<unsigned long>(d.lap_ms/10%100));
-    fb_text(f,8,190,b,2);
+    fb_text(f,8,166,b,2);
+    if(d.last_lap_battery_valid) std::snprintf(b,sizeof(b),"LAST %.1f%%",d.last_lap_battery_x10/10.0f);
+    else std::snprintf(b,sizeof(b),"LAST --%%");
+    right_text(f,220,151,b,1);
+    if(d.lap_battery_valid) std::snprintf(b,sizeof(b),"%.1f%%",d.lap_battery_x10/10.0f);
+    else std::snprintf(b,sizeof(b),"--%%");
+    fb_text(f,145,172,"NOW",1);
+    right_text(f,220,168,b,2);
     std::snprintf(b,sizeof(b),"BEST %u %lu:%02lu.%02lu",d.best_lap,static_cast<unsigned long>(d.best_ms/60000),
         static_cast<unsigned long>(d.best_ms/1000%60),static_cast<unsigned long>(d.best_ms/10%100));
-    fb_text(f,8,220,b,1);
+    fb_text(f,8,207,b,1);
 }

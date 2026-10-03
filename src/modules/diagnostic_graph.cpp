@@ -18,10 +18,9 @@ Spec spec(GraphKind g) {
     case GraphKind::Bus: return {"BUS CURRENT A",Channel::BusL,Channel::BusR,true};
     case GraphKind::Phase: return {"PHASE CURRENT A",Channel::PhaseL,Channel::PhaseR,true};
     case GraphKind::MotorV: return {"MOTOR BUS V",Channel::VoltL,Channel::VoltR,true};
-    case GraphKind::EmHv: return {"EM HV V",Channel::EmHv,Channel::EmHv,false};
-    case GraphKind::EmLv: return {"EM LV V",Channel::EmLv,Channel::EmLv,false};
     case GraphKind::BmsV: return {"BMS PACK V",Channel::BmsV,Channel::BmsV,false};
-    case GraphKind::EmA: return {"EM HV CURRENT A",Channel::EmA,Channel::EmA,false};
+    case GraphKind::BmsA: return {"BMS PACK CURRENT A",Channel::BmsA,Channel::BmsA,false};
+    case GraphKind::BmsPower: return {"BMS PACK POWER kW",Channel::BmsPower,Channel::BmsPower,false};
     case GraphKind::Throttle: return {"THROTTLE %",Channel::Throttle,Channel::Throttle,false};
     default: return {"WSS km/h",Channel::Wss,Channel::Wss,false};
     }
@@ -53,65 +52,8 @@ void diagnostic_graph(FrameBuffer &f,CheckUi &ui,const DiagnosticHistory &h,cons
         char b[52]; std::snprintf(b,sizeof(b),"LIVE 60s / RTK overwritten %lu",static_cast<unsigned long>(h.rtk_overwrites()));
         fb_text(f,8,227,b,1);return;
     }
-    const bool home_power=ui.graph==GraphKind::EmA && ui.graph_origin==CheckPage::Home;
-    if(home_power) {
-        header(f,"POWER kW");
-        const unsigned hv_index=static_cast<unsigned>(Channel::EmHv);
-        const unsigned current_index=static_cast<unsigned>(Channel::EmA);
-        const uint16_t mask=(1u<<hv_index)|(1u<<current_index);
-        float hi=1.0f;
-        bool found=false;
-        for(size_t i=0;i<h.size();++i) {
-            const auto &p=h.at(i);
-            if(now-p.ms>60000 || (p.valid&mask)!=mask) continue;
-            hi=std::max(hi,std::fabs(p.value[hv_index]*p.value[current_index])/1000.0f);
-            found=true;
-        }
-        const float step=std::pow(10.0f,std::floor(std::log10(std::max(1.0f,hi))))/2.0f;
-        const float upper=std::max(step,std::ceil(hi/step)*step);
-        ui.graph_min=0.0f;
-        ui.graph_max=ui.graph_range_set?std::max(ui.graph_max,upper):upper;
-        if(found) ui.graph_range_set=true;
-        auto py=[&](float n){return 188-static_cast<int>(n*120/ui.graph_max);};
-        for(int i=0;i<3;++i) {
-            char b[20];std::snprintf(b,sizeof(b),"%.1f",ui.graph_max*i/2.0f);
-            fb_text(f,0,184-i*60,b,1);
-        }
-        bool any=false,prev=false,prev_charging=false;
-        int px=0,prev_y=0;uint32_t stamp=0;
-        for(size_t i=0;i<h.size();++i) {
-            const auto &p=h.at(i);
-            if(now-p.ms>60000) continue;
-            if((p.valid&mask)!=mask) {prev=false;continue;}
-            const float current=p.value[current_index];
-            const float kw=std::fabs(p.value[hv_index]*current)/1000.0f;
-            const bool charging=current<0.0f;
-            const int x=46+static_cast<int>((60000-(now-p.ms))*263ULL/60000);
-            const int y=py(kw);
-            if(prev && !(p.broken&mask) && p.ms-stamp<=750 && charging==prev_charging) {
-                line(f,px,prev_y,x,y,charging);
-            } else {
-                f.pixel(x,y,true);
-            }
-            any=true;prev=true;prev_charging=charging;px=x;prev_y=y;stamp=p.ms;
-        }
-        char legend[52];
-        if(v.has(Channel::EmHv)&&v.has(Channel::EmA)) {
-            const float current=v.get(Channel::EmA);
-            const float kw=std::fabs(v.get(Channel::EmHv)*current)/1000.0f;
-            std::snprintf(legend,sizeof(legend),"%s %.2f kW   CHG ...  PWR ___",
-                current<0.0f?"CHG":"PWR",kw);
-        } else {
-            std::snprintf(legend,sizeof(legend),"NOW --   CHG ...  PWR ___");
-        }
-        fb_text(f,8,48,legend,1);
-        if(!any) fb_text(f,72,122,"NO VALID HISTORY",2);
-        fb_text(f,8,227,"LIVE / ABS / 60s / 2Hz",1);
-        return;
-    }
     const auto s=spec(ui.graph);header(f,s.name);
-    const bool voltage=ui.graph==GraphKind::MotorV || ui.graph==GraphKind::EmHv ||
-        ui.graph==GraphKind::EmLv || ui.graph==GraphKind::BmsV;
+    const bool voltage=ui.graph==GraphKind::MotorV || ui.graph==GraphKind::BmsV;
     float lo=0,hi=ui.graph==GraphKind::Throttle?100:1;
     bool found=false;
     for(size_t i=0;i<h.size();++i) {
@@ -123,7 +65,7 @@ void diagnostic_graph(FrameBuffer &f,CheckUi &ui,const DiagnosticHistory &h,cons
         }
     }
     if(voltage&&found) {
-        const float margin=std::max(ui.graph==GraphKind::EmLv?.25f:1.0f,(hi-lo)*.1f);
+        const float margin=std::max(1.0f,(hi-lo)*.1f);
         lo-=margin;hi+=margin;
     }
     const float step=std::pow(10.0f,std::floor(std::log10(std::max(1.0f,hi-lo))))/2;
@@ -159,4 +101,47 @@ void diagnostic_graph(FrameBuffer &f,CheckUi &ui,const DiagnosticHistory &h,cons
     fb_text(f,8,48,legend,1);
     if(!any) fb_text(f,72,122,"NO VALID HISTORY",2);
     fb_text(f,8,227,"LIVE / 60s / 2Hz",1);
+}
+
+void diagnostic_lap_battery_graph(FrameBuffer &f,CheckUi &ui,const CheckSnapshot &d) {
+    fb_text(f,8,10,"LAP BATTERY %",2);
+    fb_rect(f,248,2,70,30,false,true);fb_text(f,255,10,"BACK",2);fb_hline(f,0,37,320,true);
+
+    const unsigned count=std::min<unsigned>(d.lap_battery_count,LAP_BATTERY_SLOTS);
+    const unsigned pages=std::max(1u,(count+7u)/8u);
+    if(ui.list_page>=pages) ui.list_page=pages-1;
+    const unsigned newest_end=count>ui.list_page*8u?count-ui.list_page*8u:0u;
+    const unsigned first=newest_end>8u?newest_end-8u:0u;
+
+    uint16_t upper=10; // 1.0 % minimum axis span
+    for(unsigned i=first;i<newest_end;++i)
+        if(d.lap_battery_valid[i]) upper=std::max<uint16_t>(upper,d.lap_battery_x10[i]);
+    upper=static_cast<uint16_t>(((upper+9u)/10u)*10u);
+
+    fb_vline(f,42,55,134,true);fb_hline(f,42,188,268,true);
+    char label[20];
+    std::snprintf(label,sizeof(label),"%.1f",upper/10.0f);fb_text(f,4,53,label,1);
+    std::snprintf(label,sizeof(label),"%.1f",upper/20.0f);fb_text(f,4,116,label,1);
+    fb_text(f,22,181,"0",1);
+
+    if(count==0) {
+        fb_text(f,78,112,"NO LAP DATA",2);
+    } else {
+        for(unsigned i=first;i<newest_end;++i) {
+            const int slot=static_cast<int>(i-first);
+            const int x=52+slot*32;
+            const bool valid=d.lap_battery_valid[i];
+            const int height=valid?static_cast<int>(d.lap_battery_x10[i]*120u/upper):0;
+            if(valid) fb_rect(f,x,188-height,20,height,true,true);
+            else fb_rect(f,x,176,20,12,false,true);
+            std::snprintf(label,sizeof(label),"L%u",i+1);fb_text(f,x,195,label,1);
+            if(valid) std::snprintf(label,sizeof(label),"%.1f",d.lap_battery_x10[i]/10.0f);
+            else std::snprintf(label,sizeof(label),"--");
+            fb_text(f,x,valid?std::max(42,181-height):160,label,1);
+            if(d.lap_battery_active==i+1) fb_text(f,x+7,213,"*",1);
+        }
+    }
+    std::snprintf(label,sizeof(label),"%u/%u",ui.list_page+1,pages);fb_text(f,146,216,label,1);
+    fb_hline(f,0,224,320,true);
+    fb_text(f,8,229,"< OLDER       * ACTIVE       NEWER >",1);
 }

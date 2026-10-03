@@ -156,6 +156,164 @@ void encode_cluster_lap_status(const ClusterLapStatus &lap, uint8_t out[8]) {
     out[7] = lap.life;
 }
 
+void encode_cluster_lap_history(const ClusterLapHistoryFrame &lap, uint8_t out[8]) {
+    out[0] = lap.lap_number;
+    out[1] = (lap.valid ? 0x01u : 0u) |
+             (lap.active ? 0x02u : 0u) |
+             (lap.completed ? 0x04u : 0u) |
+             (lap.timer_running ? 0x08u : 0u) |
+             (lap.timer_paused ? 0x10u : 0u);
+    put_u32le(out + 2, lap.lap_time_ms);
+    out[6] = lap.session;
+    out[7] = lap.life;
+}
+
+void encode_cluster_lap_battery(const ClusterLapHistoryFrame &lap, uint8_t out[8]) {
+    out[0] = lap.lap_number;
+    out[1] = (lap.battery_valid ? 0x01u : 0u) |
+             (lap.active ? 0x02u : 0u) |
+             (lap.completed ? 0x04u : 0u) |
+             (lap.timer_running ? 0x08u : 0u) |
+             (lap.timer_paused ? 0x10u : 0u);
+    put_u16le(out + 2, lap.battery_valid ? lap.battery_used_x10 : 0u);
+    out[4] = 0;
+    out[5] = 0;
+    out[6] = lap.session;
+    out[7] = lap.life;
+}
+
+void ClusterLapHistory::clear_session(bool emit_invalid) {
+    if (emit_invalid && max_lap_seen_ != 0) {
+        clear_lap_ = 1;
+        clear_until_ = max_lap_seen_;
+    } else {
+        clear_lap_ = 0;
+        clear_until_ = 0;
+    }
+    for (uint8_t i = 0; i < CLUSTER_LAP_HISTORY_MAX; ++i) {
+        completed_ms_[i] = 0;
+        completed_battery_x10_[i] = 0;
+        completed_battery_valid_[i] = false;
+    }
+    latest_ = ClusterLapHistoryInput{};
+    completed_count_ = 0;
+    max_lap_seen_ = 0;
+    completed_cursor_ = 0;
+    resend_count_ = 0;
+    resend_credit_ = 0;
+    final_lap_ = 0;
+    final_repeats_ = 0;
+    session_present_ = false;
+}
+
+void ClusterLapHistory::update(const ClusterLapHistoryInput &input) {
+    if (input.current_lap_number == 0) {
+        if (session_present_) {
+            ++session_;
+            session_reserved_ = true;
+            clear_session(true);
+        }
+        latest_ = input;
+        return;
+    }
+
+    if (!session_present_) {
+        if (!session_reserved_) ++session_;
+        session_reserved_ = false;
+        session_present_ = true;
+    } else if (input.completed_lap_count < completed_count_) {
+        ++session_;
+        clear_session(true);
+        session_present_ = true;
+    }
+
+    const uint8_t completed = input.completed_lap_count > CLUSTER_LAP_HISTORY_MAX
+        ? CLUSTER_LAP_HISTORY_MAX : input.completed_lap_count;
+    if (completed > completed_count_) {
+        // MIN_LAP_MS makes multiple crossings inside one 200 ms TX period
+        // impossible, so last_lap_ms belongs to this newly completed slot.
+        completed_ms_[completed - 1] = input.last_lap_ms;
+        completed_battery_x10_[completed - 1] = input.last_battery_used_x10;
+        completed_battery_valid_[completed - 1] = input.last_battery_valid;
+        completed_count_ = completed;
+        final_lap_ = completed;
+        final_repeats_ = CLUSTER_LAP_HISTORY_FINAL_REPEATS;
+    }
+    latest_ = input;
+    max_lap_seen_ = input.current_lap_number > max_lap_seen_
+        ? input.current_lap_number : max_lap_seen_;
+    if (completed_count_ > max_lap_seen_) max_lap_seen_ = completed_count_;
+}
+
+void ClusterLapHistory::fill_completed(uint8_t lap_number, ClusterLapHistoryFrame &frame) const {
+    frame = ClusterLapHistoryFrame{};
+    frame.lap_number = lap_number;
+    frame.valid = true;
+    frame.completed = true;
+    frame.lap_time_ms = completed_ms_[lap_number - 1];
+    frame.battery_used_x10 = completed_battery_x10_[lap_number - 1];
+    frame.battery_valid = completed_battery_valid_[lap_number - 1];
+    frame.session = session_;
+}
+
+bool ClusterLapHistory::take_transition_frame(ClusterLapHistoryFrame &frame) {
+    if (clear_lap_ != 0 && clear_lap_ <= clear_until_) {
+        frame = ClusterLapHistoryFrame{};
+        frame.lap_number = clear_lap_++;
+        frame.session = session_;
+        if (clear_lap_ > clear_until_) clear_lap_ = clear_until_ = 0;
+        return true;
+    }
+    if (final_repeats_ != 0 && final_lap_ != 0) {
+        fill_completed(final_lap_, frame);
+        --final_repeats_;
+        return true;
+    }
+    return false;
+}
+
+bool ClusterLapHistory::active_frame(ClusterLapHistoryFrame &frame) const {
+    if (!session_present_ || latest_.current_lap_number == 0 ||
+        latest_.completed_lap_count >= CLUSTER_LAP_HISTORY_MAX) return false;
+    frame = ClusterLapHistoryFrame{};
+    frame.lap_number = latest_.current_lap_number;
+    frame.valid = true;
+    frame.active = true;
+    frame.timer_running = latest_.timer_running;
+    frame.timer_paused = latest_.timer_paused;
+    frame.lap_time_ms = latest_.current_lap_ms;
+    frame.battery_used_x10 = latest_.current_battery_used_x10;
+    frame.battery_valid = latest_.current_battery_valid;
+    frame.session = session_;
+    return true;
+}
+
+bool ClusterLapHistory::next_completed_frame(ClusterLapHistoryFrame &frame) {
+    if (completed_count_ == 0) return false;
+    if (completed_cursor_ >= completed_count_) completed_cursor_ = 0;
+    fill_completed(static_cast<uint8_t>(completed_cursor_ + 1), frame);
+    ++completed_cursor_;
+    return true;
+}
+
+bool ClusterLapHistory::due_completed_frame(uint32_t now_ms, ClusterLapHistoryFrame &frame) {
+    if (resend_count_ != completed_count_) {
+        resend_count_ = completed_count_;
+        resend_ms_ = now_ms;
+        resend_credit_ = 0;
+        return false;
+    }
+    const uint32_t elapsed = now_ms - resend_ms_;
+    resend_ms_ = now_ms;
+    if (completed_count_ == 0) return false;
+    // Spread N completed slots over one second; never burst after a task stall.
+    const uint32_t bounded_elapsed = elapsed > 1000 ? 1000 : elapsed;
+    resend_credit_ += bounded_elapsed * completed_count_;
+    if (resend_credit_ < 1000) return false;
+    resend_credit_ %= 1000;
+    return next_completed_frame(frame);
+}
+
 VcuClusterStatus decode_vcu_cluster_status(const uint8_t data[8]) {
     VcuClusterStatus out;
     out.gear_valid = data[0] <= 3;

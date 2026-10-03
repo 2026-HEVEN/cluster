@@ -55,7 +55,7 @@ void DiagnosticHistory::drivetrain(uint32_t sequence,LinkId id,EventKind kind,ui
     append(id,kind,0,now);
 }
 const char *diagnostic_link_name(LinkId id) {
-    static const char *names[]={"MOTOR L","MOTOR R","VCU","WSS","STEER","IMU","WHEELS","CONTROL","BMS","EM","GNSS","WIFI","NTRIP","RTCM"};
+    static const char *names[]={"MOTOR L","MOTOR R","VCU","WSS","STEER","IMU","WHEELS","CONTROL","BMS","GNSS","WIFI","NTRIP","RTCM"};
     return names[static_cast<size_t>(id)];
 }
 const char *diagnostic_rtk_name(uint8_t state) {

@@ -37,6 +37,7 @@ constexpr uint32_t DEPART_CONFIRM_MS = 150;
 constexpr uint32_t VEHICLE_SPEED_STALE_MS = 300;
 constexpr uint32_t MIN_LAP_MS = 10000;
 constexpr uint32_t GPS_FIX_TIMEOUT_MS = 3000;
+constexpr uint32_t BMS_SOC_STALE_MS = 5000;
 constexpr float GPS_RATE_ALPHA = 0.25f;
 
 HardwareSerial gps_serial(2);
@@ -95,6 +96,107 @@ uint32_t position_seq = 0;
 uint32_t speed_seq = 0;
 float gga_rate = 0.0f;
 float rmc_rate = 0.0f;
+bool lap_battery_measurement_valid = false;
+bool lap_battery_segment_active = false;
+uint16_t lap_battery_segment_start_x10 = 0;
+uint16_t lap_battery_accumulated_x10 = 0;
+
+bool bms_soc_x10(uint32_t now, uint16_t &value) {
+    if (!state.bms_ble_connected || !state.soc_valid || state.bms_last_rx_ms == 0 ||
+        (int32_t)(now - state.bms_last_rx_ms) > (int32_t)BMS_SOC_STALE_MS) return false;
+    int scaled = (int)(state.soc * 1000.0f + 0.5f);
+    if (scaled < 0) scaled = 0;
+    if (scaled > 1000) scaled = 1000;
+    value = static_cast<uint16_t>(scaled);
+    return true;
+}
+
+uint16_t battery_total_x10(uint16_t current_soc_x10) {
+    const uint16_t segment = lap_battery_segment_start_x10 > current_soc_x10
+        ? static_cast<uint16_t>(lap_battery_segment_start_x10 - current_soc_x10) : 0;
+    const uint32_t total = static_cast<uint32_t>(lap_battery_accumulated_x10) + segment;
+    return total > 1000 ? 1000 : static_cast<uint16_t>(total);
+}
+
+void clear_lap_battery_history() {
+    lap_battery_measurement_valid = false;
+    lap_battery_segment_active = false;
+    lap_battery_segment_start_x10 = 0;
+    lap_battery_accumulated_x10 = 0;
+    state.current_lap_battery_used_x10 = 0;
+    state.last_lap_battery_used_x10 = 0;
+    state.current_lap_battery_valid = false;
+    state.last_lap_battery_valid = false;
+    std::memset(state.lap_battery_used_x10, 0, sizeof(state.lap_battery_used_x10));
+    std::memset(state.lap_battery_valid, 0, sizeof(state.lap_battery_valid));
+}
+
+void begin_lap_battery(uint32_t now) {
+    lap_battery_accumulated_x10 = 0;
+    uint16_t soc = 0;
+    lap_battery_measurement_valid = bms_soc_x10(now, soc);
+    lap_battery_segment_active = lap_battery_measurement_valid;
+    lap_battery_segment_start_x10 = soc;
+    state.current_lap_battery_used_x10 = 0;
+    state.current_lap_battery_valid = lap_battery_measurement_valid;
+}
+
+void refresh_lap_battery(uint32_t now) {
+    if (!lap_battery_measurement_valid) {
+        state.current_lap_battery_valid = false;
+        return;
+    }
+    if (!lap_battery_segment_active) {
+        state.current_lap_battery_used_x10 = lap_battery_accumulated_x10;
+        state.current_lap_battery_valid = true;
+        return;
+    }
+    uint16_t soc = 0;
+    if (!bms_soc_x10(now, soc)) {
+        state.current_lap_battery_valid = false;
+        return;
+    }
+    state.current_lap_battery_used_x10 = battery_total_x10(soc);
+    state.current_lap_battery_valid = true;
+}
+
+void finish_lap_battery_segment(uint32_t now) {
+    if (!lap_battery_measurement_valid || !lap_battery_segment_active) return;
+    uint16_t soc = 0;
+    if (!bms_soc_x10(now, soc)) {
+        lap_battery_measurement_valid = false;
+        lap_battery_segment_active = false;
+        state.current_lap_battery_valid = false;
+        return;
+    }
+    lap_battery_accumulated_x10 = battery_total_x10(soc);
+    lap_battery_segment_active = false;
+    state.current_lap_battery_used_x10 = lap_battery_accumulated_x10;
+    state.current_lap_battery_valid = true;
+}
+
+void resume_lap_battery_segment(uint32_t now) {
+    if (!lap_battery_measurement_valid) return;
+    uint16_t soc = 0;
+    if (!bms_soc_x10(now, soc)) {
+        lap_battery_measurement_valid = false;
+        state.current_lap_battery_valid = false;
+        return;
+    }
+    lap_battery_segment_start_x10 = soc;
+    lap_battery_segment_active = true;
+    state.current_lap_battery_valid = true;
+}
+
+void complete_lap_battery(uint8_t lap_number, uint32_t now) {
+    finish_lap_battery_segment(now);
+    state.last_lap_battery_used_x10 = lap_battery_accumulated_x10;
+    state.last_lap_battery_valid = lap_battery_measurement_valid;
+    if (lap_number >= 1 && lap_number <= 99) {
+        state.lap_battery_used_x10[lap_number - 1] = lap_battery_accumulated_x10;
+        state.lap_battery_valid[lap_number - 1] = lap_battery_measurement_valid;
+    }
+}
 
 int hex_value(char c) {
     if (c >= '0' && c <= '9') return c - '0';
@@ -278,6 +380,7 @@ void update_departure_timer(uint32_t now) {
     lap_armed = false;
     last_cross_ms = departure_speed_since_ms;
     departure_speed_since_ms = 0;
+    begin_lap_battery(now);
 }
 
 float distance_m(double lat1, double lon1, double lat2, double lon2) {
@@ -393,6 +496,7 @@ bool finish_line_crossed(double prev_lat, double prev_lon,
 void record_lap(uint32_t cross_ms) {
     const uint32_t lap_ms = cross_ms - last_cross_ms;
     const uint8_t completed_lap = state.lap_count < 99 ? (uint8_t)(state.lap_count + 1) : 99;
+    complete_lap_battery(completed_lap, millis());
     state.last_lap_ms = lap_ms;
     if (state.best_lap_ms == 0 || lap_ms < state.best_lap_ms) {
         state.best_lap_ms = lap_ms;
@@ -402,6 +506,7 @@ void record_lap(uint32_t cross_ms) {
     last_cross_ms = cross_ms;
     if (state.lap_count < 99) ++state.lap_count;
     lap_armed = false;
+    begin_lap_battery(millis());
 }
 
 void update_lap(double lat, double lon) {
@@ -431,6 +536,7 @@ void update_lap(double lat, double lon) {
     if (!timing_active || last_cross_ms == 0) return;
 
     state.current_lap_ms = now - last_cross_ms;
+    refresh_lap_battery(now);
 
     if (had_previous_fix) {
         add_heading_sample(prev_lat, prev_lon, lat, lon);
@@ -599,6 +705,7 @@ bool start_at_current_fix() {
     state.last_lap_ms = 0;
     state.best_lap_count = 0;
     state.best_lap_ms = 0;
+    clear_lap_battery_history();
     return true;
 }
 
@@ -606,6 +713,7 @@ bool stop() {
     if (!have_start || timing_paused || (!timing_active && !waiting_departure)) return false;
 
     paused_waiting_departure = waiting_departure;
+    if (timing_active) finish_lap_battery_segment(millis());
     paused_lap_ms = timing_active && last_cross_ms != 0
         ? millis() - last_cross_ms
         : state.current_lap_ms;
@@ -631,6 +739,7 @@ bool resume() {
         timing_active = true;
         last_cross_ms = millis() - paused_lap_ms;
         state.current_lap_ms = paused_lap_ms;
+        resume_lap_battery_segment(millis());
     }
     paused_waiting_departure = false;
     return true;
@@ -655,6 +764,7 @@ void reset() {
     state.last_lap_ms = 0;
     state.best_lap_count = 0;
     state.best_lap_ms = 0;
+    clear_lap_battery_history();
 }
 
 size_t write_rtcm(const uint8_t *data, size_t len) {

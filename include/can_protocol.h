@@ -71,6 +71,12 @@ constexpr uint32_t CAN_ID_CLUSTER_GNSS_SPEED = 0x18F9FFC0;
 // b5 longest 0x1801D0C0 send interval, ms (saturating)
 // b6 command sends later than 40 ms (saturating)  b7 life
 constexpr uint32_t CAN_ID_CLUSTER_LOOP_TIMING = 0x18FAFFC0;
+// Cluster -> logger multiplexed per-lap history. Byte 0 is the lap-number
+// multiplexer so Monolith can expose Lap 1, Lap 2, ... as stable signals.
+constexpr uint32_t CAN_ID_CLUSTER_LAP_HISTORY = 0x18FBFFC0;
+// Same lap-number multiplexer as LAP_HISTORY, carrying BMS SOC consumed by
+// that lap. Separate ID keeps the existing lap-time decoder contract stable.
+constexpr uint32_t CAN_ID_CLUSTER_LAP_BATTERY = 0x18FCFFC0;
 
 // Node reset report, same layout on every ESP32 node (0x1CFDFF00 | SA), 1 s.
 // Repeated so a logger that rebooted at the same moment still records it.
@@ -127,6 +133,70 @@ struct ClusterLapStatus {
     uint8_t life = 0;
 };
 
+constexpr uint8_t CLUSTER_LAP_HISTORY_MAX = 99;
+constexpr uint8_t CLUSTER_LAP_HISTORY_FINAL_REPEATS = 3;
+
+struct ClusterLapHistoryInput {
+    uint8_t current_lap_number = 0;  // 0=no configured Start/Finish line
+    uint8_t completed_lap_count = 0;
+    uint32_t current_lap_ms = 0;
+    uint32_t last_lap_ms = 0;
+    uint16_t current_battery_used_x10 = 0;
+    uint16_t last_battery_used_x10 = 0;
+    bool current_battery_valid = false;
+    bool last_battery_valid = false;
+    bool timer_running = false;
+    bool timer_paused = false;
+};
+
+struct ClusterLapHistoryFrame {
+    uint8_t lap_number = 0;
+    bool valid = false;
+    bool active = false;
+    bool completed = false;
+    bool timer_running = false;
+    bool timer_paused = false;
+    uint32_t lap_time_ms = 0;
+    uint16_t battery_used_x10 = 0;
+    bool battery_valid = false;
+    uint8_t session = 0;
+    uint8_t life = 0;
+};
+
+// Keeps the logger-facing lap slots stable without changing GPS crossing,
+// pause/resume, or best-lap logic. One instance is owned by CAN TX.
+class ClusterLapHistory {
+public:
+    void update(const ClusterLapHistoryInput &input);
+    bool take_transition_frame(ClusterLapHistoryFrame &frame);
+    bool active_frame(ClusterLapHistoryFrame &frame) const;
+    bool next_completed_frame(ClusterLapHistoryFrame &frame);
+    bool due_completed_frame(uint32_t now_ms, ClusterLapHistoryFrame &frame);
+    uint8_t session() const { return session_; }
+
+private:
+    uint32_t completed_ms_[CLUSTER_LAP_HISTORY_MAX]{};
+    uint16_t completed_battery_x10_[CLUSTER_LAP_HISTORY_MAX]{};
+    bool completed_battery_valid_[CLUSTER_LAP_HISTORY_MAX]{};
+    ClusterLapHistoryInput latest_{};
+    uint8_t completed_count_ = 0;
+    uint8_t max_lap_seen_ = 0;
+    uint8_t completed_cursor_ = 0;
+    uint8_t resend_count_ = 0;
+    uint32_t resend_ms_ = 0;
+    uint32_t resend_credit_ = 0;
+    uint8_t final_lap_ = 0;
+    uint8_t final_repeats_ = 0;
+    uint8_t clear_lap_ = 0;
+    uint8_t clear_until_ = 0;
+    uint8_t session_ = 0;
+    bool session_present_ = false;
+    bool session_reserved_ = false;
+
+    void clear_session(bool emit_invalid);
+    void fill_completed(uint8_t lap_number, ClusterLapHistoryFrame &frame) const;
+};
+
 struct VcuClusterStatus {
     uint8_t gear = 0;
     bool gear_valid = false;
@@ -149,6 +219,8 @@ void encode_cluster_gnss_rtk_status(const ClusterGnssRtkStatus &status, uint8_t 
 void encode_cluster_gnss_speed(const ClusterGnssSpeed &speed, uint8_t out[8]);
 void encode_cluster_lap_time(uint32_t current_lap_ms, uint32_t last_lap_ms, uint8_t out[8]);
 void encode_cluster_lap_status(const ClusterLapStatus &lap, uint8_t out[8]);
+void encode_cluster_lap_history(const ClusterLapHistoryFrame &lap, uint8_t out[8]);
+void encode_cluster_lap_battery(const ClusterLapHistoryFrame &lap, uint8_t out[8]);
 void encode_reset_report(uint8_t reason, uint8_t rom_reason, uint32_t uptime_ms,
                          uint32_t resets_since_power_on, uint8_t life,
                          uint8_t out[8]);

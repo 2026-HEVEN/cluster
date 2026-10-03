@@ -1,6 +1,9 @@
 #include <unity.h>
 #include "modules/touch_input.h"
 
+void setUp(void) {}
+void tearDown(void) {}
+
 namespace {
 TouchRawSample down(int16_t x, int16_t y) { return {true, x, y}; }
 TouchRawSample up() { return {false, 0, 0}; }

@@ -3,10 +3,10 @@
 #include <cstddef>
 
 enum class Channel : uint8_t { Wss, BusL, BusR, PhaseL, PhaseR, VoltL, VoltR,
-    EmHv, EmLv, BmsV, EmA, Throttle, Count };
+    BmsV, BmsA, BmsPower, Throttle, Count };
 constexpr size_t CHANNELS = static_cast<size_t>(Channel::Count);
 enum class LinkId : uint8_t { MotorL, MotorR, Vcu, Wss, Steering, Imu, Wheels,
-    Control, Bms, Em, Gps, Wifi, Ntrip, Rtcm, Count };
+    Control, Bms, Gps, Wifi, Ntrip, Rtcm, Count };
 constexpr size_t LINKS = static_cast<size_t>(LinkId::Count);
 enum class EventKind : uint8_t { Connected, Lost, Restored, FaultOn, FaultOff,
     DriveDropout, DriveDivergence };

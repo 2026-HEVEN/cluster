@@ -18,6 +18,8 @@ void test_cluster_gnss_lap_ids(void) {
     TEST_ASSERT_EQUAL_HEX32(0x18F7FFC0, CAN_ID_CLUSTER_LAP_TIME);
     TEST_ASSERT_EQUAL_HEX32(0x18F8FFC0, CAN_ID_CLUSTER_LAP_STATUS);
     TEST_ASSERT_EQUAL_HEX32(0x18F9FFC0, CAN_ID_CLUSTER_GNSS_SPEED);
+    TEST_ASSERT_EQUAL_HEX32(0x18FBFFC0, CAN_ID_CLUSTER_LAP_HISTORY);
+    TEST_ASSERT_EQUAL_HEX32(0x18FCFFC0, CAN_ID_CLUSTER_LAP_BATTERY);
 }
 void test_feedback_ids(void) {
     TEST_ASSERT_EQUAL_HEX32(0x1801D0EF, CAN_ID_FB1_L);
@@ -298,6 +300,193 @@ void test_encode_cluster_lap_status(void) {
     TEST_ASSERT_EQUAL_UINT8(0xA5, out[7]);
 }
 
+void test_encode_cluster_lap_history(void) {
+    uint8_t out[8];
+    ClusterLapHistoryFrame lap;
+    lap.lap_number = 3;
+    lap.valid = true;
+    lap.active = true;
+    lap.timer_running = true;
+    lap.lap_time_ms = 0x12345678u;
+    lap.session = 7;
+    lap.life = 42;
+    encode_cluster_lap_history(lap, out);
+
+    TEST_ASSERT_EQUAL_UINT8(3, out[0]);
+    TEST_ASSERT_EQUAL_HEX8(0x0B, out[1]);
+    TEST_ASSERT_EQUAL_HEX8(0x78, out[2]);
+    TEST_ASSERT_EQUAL_HEX8(0x56, out[3]);
+    TEST_ASSERT_EQUAL_HEX8(0x34, out[4]);
+    TEST_ASSERT_EQUAL_HEX8(0x12, out[5]);
+    TEST_ASSERT_EQUAL_UINT8(7, out[6]);
+    TEST_ASSERT_EQUAL_UINT8(42, out[7]);
+}
+
+void test_encode_cluster_lap_battery(void) {
+    uint8_t out[8];
+    ClusterLapHistoryFrame lap;
+    lap.lap_number = 3;
+    lap.battery_valid = true;
+    lap.active = true;
+    lap.timer_running = true;
+    lap.battery_used_x10 = 23;
+    lap.session = 7;
+    lap.life = 42;
+    encode_cluster_lap_battery(lap, out);
+
+    TEST_ASSERT_EQUAL_UINT8(3, out[0]);
+    TEST_ASSERT_EQUAL_HEX8(0x0B, out[1]);
+    TEST_ASSERT_EQUAL_HEX8(0x17, out[2]);
+    TEST_ASSERT_EQUAL_HEX8(0x00, out[3]);
+    TEST_ASSERT_EQUAL_HEX8(0x00, out[4]);
+    TEST_ASSERT_EQUAL_HEX8(0x00, out[5]);
+    TEST_ASSERT_EQUAL_UINT8(7, out[6]);
+    TEST_ASSERT_EQUAL_UINT8(42, out[7]);
+}
+
+void test_lap_history_crossing_and_pause_resume(void) {
+    ClusterLapHistory history;
+    ClusterLapHistoryInput in;
+    ClusterLapHistoryFrame frame;
+
+    in.current_lap_number = 1;
+    in.current_lap_ms = 200;
+    in.current_battery_used_x10 = 10;
+    in.current_battery_valid = true;
+    in.timer_running = true;
+    history.update(in);
+    TEST_ASSERT_EQUAL_UINT8(1, history.session());
+    TEST_ASSERT_TRUE(history.active_frame(frame));
+    TEST_ASSERT_EQUAL_UINT8(1, frame.lap_number);
+    TEST_ASSERT_EQUAL_UINT32(200, frame.lap_time_ms);
+    TEST_ASSERT_TRUE(frame.active && frame.timer_running);
+    TEST_ASSERT_TRUE(frame.battery_valid);
+    TEST_ASSERT_EQUAL_UINT16(10, frame.battery_used_x10);
+
+    in.current_lap_number = 2;
+    in.completed_lap_count = 1;
+    in.current_lap_ms = 0;
+    in.last_lap_ms = 58430;
+    in.last_battery_used_x10 = 20;
+    in.last_battery_valid = true;
+    history.update(in);
+    TEST_ASSERT_TRUE(history.take_transition_frame(frame));
+    TEST_ASSERT_EQUAL_UINT8(1, frame.lap_number);
+    TEST_ASSERT_EQUAL_UINT32(58430, frame.lap_time_ms);
+    TEST_ASSERT_TRUE(frame.valid && frame.completed);
+    TEST_ASSERT_TRUE(frame.battery_valid);
+    TEST_ASSERT_EQUAL_UINT16(20, frame.battery_used_x10);
+    TEST_ASSERT_FALSE(frame.active);
+    TEST_ASSERT_TRUE(history.active_frame(frame));
+    TEST_ASSERT_EQUAL_UINT8(2, frame.lap_number);
+    TEST_ASSERT_EQUAL_UINT32(0, frame.lap_time_ms);
+
+    in.current_lap_ms = 12345;
+    in.timer_running = false;
+    in.timer_paused = true;
+    history.update(in);
+    TEST_ASSERT_TRUE(history.active_frame(frame));
+    TEST_ASSERT_EQUAL_UINT32(12345, frame.lap_time_ms);
+    TEST_ASSERT_FALSE(frame.timer_running);
+    TEST_ASSERT_TRUE(frame.timer_paused);
+
+    in.current_lap_ms = 12545;
+    in.timer_running = true;
+    in.timer_paused = false;
+    history.update(in);
+    TEST_ASSERT_TRUE(history.active_frame(frame));
+    TEST_ASSERT_EQUAL_UINT32(12545, frame.lap_time_ms);
+    TEST_ASSERT_TRUE(frame.timer_running);
+
+    // The final Lap 1 value is repeated three transition cycles total.
+    TEST_ASSERT_TRUE(history.take_transition_frame(frame));
+    TEST_ASSERT_TRUE(history.take_transition_frame(frame));
+    TEST_ASSERT_FALSE(history.take_transition_frame(frame));
+    TEST_ASSERT_TRUE(history.next_completed_frame(frame));
+    TEST_ASSERT_EQUAL_UINT8(1, frame.lap_number);
+    TEST_ASSERT_EQUAL_UINT32(58430, frame.lap_time_ms);
+}
+
+void test_lap_history_reset_clears_old_slots(void) {
+    ClusterLapHistory history;
+    ClusterLapHistoryInput in;
+    ClusterLapHistoryFrame frame;
+    in.current_lap_number = 1;
+    in.timer_running = true;
+    history.update(in);
+    in.current_lap_number = 2;
+    in.completed_lap_count = 1;
+    in.last_lap_ms = 58430;
+    history.update(in);
+    const uint8_t first_session = history.session();
+
+    in = ClusterLapHistoryInput{};
+    history.update(in);
+    TEST_ASSERT_EQUAL_UINT8(static_cast<uint8_t>(first_session + 1), history.session());
+    TEST_ASSERT_FALSE(history.active_frame(frame));
+    TEST_ASSERT_FALSE(history.next_completed_frame(frame));
+    TEST_ASSERT_TRUE(history.take_transition_frame(frame));
+    TEST_ASSERT_EQUAL_UINT8(1, frame.lap_number);
+    TEST_ASSERT_FALSE(frame.valid);
+    TEST_ASSERT_FALSE(frame.battery_valid);
+    TEST_ASSERT_EQUAL_UINT32(0, frame.lap_time_ms);
+    TEST_ASSERT_TRUE(history.take_transition_frame(frame));
+    TEST_ASSERT_EQUAL_UINT8(2, frame.lap_number);
+    TEST_ASSERT_FALSE(frame.valid);
+
+    in.current_lap_number = 1;
+    history.update(in);
+    TEST_ASSERT_EQUAL_UINT8(static_cast<uint8_t>(first_session + 1), history.session());
+    TEST_ASSERT_TRUE(history.active_frame(frame));
+    TEST_ASSERT_EQUAL_UINT8(1, frame.lap_number);
+    TEST_ASSERT_EQUAL_UINT32(0, frame.lap_time_ms);
+}
+
+void test_completed_laps_refresh_each_second(void) {
+    const uint8_t counts[] = {1, 7, 99};
+    for (const uint8_t count : counts) {
+        ClusterLapHistory history;
+        ClusterLapHistoryInput in;
+        in.current_lap_number = 1;
+        history.update(in);
+        for (uint8_t lap = 1; lap <= count; ++lap) {
+            in.completed_lap_count = lap;
+            in.current_lap_number = lap == 99 ? 99 : lap + 1;
+            in.last_lap_ms = 50000 + lap;
+            history.update(in);
+        }
+        ClusterLapHistoryFrame frame;
+        const uint32_t start = 0xFFFFFF00u;
+        TEST_ASSERT_FALSE(history.due_completed_frame(start, frame));
+        uint8_t seen[99]{};
+        for (uint32_t elapsed = 5; elapsed <= 3000; elapsed += 5) {
+            if (!history.due_completed_frame(start + elapsed, frame)) continue;
+            TEST_ASSERT_TRUE(frame.completed);
+            TEST_ASSERT_EQUAL_UINT32(50000 + frame.lap_number, frame.lap_time_ms);
+            ++seen[frame.lap_number - 1];
+        }
+        for (uint8_t lap = 0; lap < count; ++lap) TEST_ASSERT_EQUAL_UINT8(3, seen[lap]);
+        // Reset discards every completed slot, including pending replay credit.
+        history.update(ClusterLapHistoryInput{});
+        TEST_ASSERT_FALSE(history.due_completed_frame(start + 3010, frame));
+        TEST_ASSERT_FALSE(history.due_completed_frame(start + 5010, frame));
+    }
+}
+
+void test_completed_replay_no_catchup_burst(void) {
+    ClusterLapHistory history;
+    ClusterLapHistoryInput in;
+    in.current_lap_number = 2;
+    in.completed_lap_count = 1;
+    in.last_lap_ms = 58430;
+    history.update(in);
+    ClusterLapHistoryFrame frame;
+    TEST_ASSERT_FALSE(history.due_completed_frame(100, frame));
+    TEST_ASSERT_TRUE(history.due_completed_frame(10100, frame));
+    TEST_ASSERT_FALSE(history.due_completed_frame(10100, frame));
+    TEST_ASSERT_FALSE(history.due_completed_frame(10105, frame));
+}
+
 void test_encode_reset_report(void) {
     // 모든 ESP32 노드 공통 배치. 업타임은 LE 32비트, 리셋 횟수는 255에서 포화.
     uint8_t d[8];
@@ -361,6 +550,12 @@ int main(int, char **) {
     RUN_TEST(test_encode_cluster_gnss_speed_saturates);
     RUN_TEST(test_encode_cluster_lap_time);
     RUN_TEST(test_encode_cluster_lap_status);
+    RUN_TEST(test_encode_cluster_lap_history);
+    RUN_TEST(test_encode_cluster_lap_battery);
+    RUN_TEST(test_lap_history_crossing_and_pause_resume);
+    RUN_TEST(test_lap_history_reset_clears_old_slots);
+    RUN_TEST(test_completed_laps_refresh_each_second);
+    RUN_TEST(test_completed_replay_no_catchup_burst);
     RUN_TEST(test_encode_reset_report);
     return UNITY_END();
 }

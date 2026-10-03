@@ -3,10 +3,11 @@
 #include <cstdio>
 
 void diagnostic_graph(FrameBuffer&,CheckUi&,const DiagnosticHistory&,const TelemetryValues&,uint32_t);
+void diagnostic_lap_battery_graph(FrameBuffer&,CheckUi&,const CheckSnapshot&);
 namespace {
 struct HitRect { int left,top,right,bottom; };
 constexpr HitRect HOME_WSS_TOUCH{0,0,261,112};
-constexpr HitRect HOME_POWER_TOUCH{0,138,276,184};
+constexpr HitRect HOME_LAP_BATTERY_TOUCH{150,145,275,204};
 bool contains(const HitRect &r,int x,int y) {
     return x>=r.left && x<r.right && y>=r.top && y<r.bottom;
 }
@@ -18,9 +19,8 @@ bool check_graph_for_row(CheckPage page,int row,GraphKind &kind) {
         if(row==3) {kind=GraphKind::Phase;return true;}
     } else if(page==CheckPage::Power) {
         if(row==2) {kind=GraphKind::BmsV;return true;}
-        if(row==5) {kind=GraphKind::EmHv;return true;}
-        if(row==6) {kind=GraphKind::EmLv;return true;}
-        if(row==7) {kind=GraphKind::EmA;return true;}
+        if(row==3) {kind=GraphKind::BmsA;return true;}
+        if(row==4) {kind=GraphKind::BmsPower;return true;}
     } else if(page==CheckPage::Vcu) {
         if(row==3) {kind=GraphKind::Throttle;return true;}
         if(row==4) {kind=GraphKind::Wss;return true;}
@@ -28,7 +28,7 @@ bool check_graph_for_row(CheckPage page,int row,GraphKind &kind) {
     return false;
 }
 void CheckUi::open_graph(GraphKind kind) {
-    graph_origin=page; page=CheckPage::Graph; graph=kind; graph_min=graph_max=0; graph_range_set=false;
+    graph_origin=page; page=CheckPage::Graph; graph=kind; graph_min=graph_max=0; graph_range_set=false; list_page=0;
 }
 void CheckUi::tap(int x,int y,bool warning) {
     if(page!=CheckPage::Home && x>=248 && y<36) {
@@ -43,11 +43,17 @@ void CheckUi::tap(int x,int y,bool warning) {
     }
     if(page==CheckPage::Home) {
         if(contains(HOME_WSS_TOUCH,x,y)) open_graph(GraphKind::Wss);
-        else if(contains(HOME_POWER_TOUCH,x,y)) open_graph(GraphKind::EmA);
+        else if(contains(HOME_LAP_BATTERY_TOUCH,x,y)) open_graph(GraphKind::LapBattery);
         else page=warning?CheckPage::Warning:CheckPage::Menu;
         return;
     }
-    if(page==CheckPage::Graph) return;
+    if(page==CheckPage::Graph) {
+        if(graph==GraphKind::LapBattery && y>=38) {
+            if(x<160) ++list_page;
+            else if(list_page) --list_page;
+        }
+        return;
+    }
     if(page==CheckPage::Warning) {
         if(y>=210) { if(x>=200) page=CheckPage::Menu; else ++warning_page; }
         return;
@@ -108,10 +114,14 @@ void stats(FrameBuffer &f,const DiagnosticHistory &h,LinkId id,int y,uint32_t no
 void check_home_nav(FrameBuffer&,bool) {}
 void check_draw(FrameBuffer &f,CheckUi &ui,const CheckSnapshot &d,const DiagnosticHistory &h,
                 const TelemetryValues &v,uint32_t now) {
-    if(ui.page==CheckPage::Graph) { diagnostic_graph(f,ui,h,v,now);return; }
+    if(ui.page==CheckPage::Graph) {
+        if(ui.graph==GraphKind::LapBattery) diagnostic_lap_battery_graph(f,ui,d);
+        else diagnostic_graph(f,ui,h,v,now);
+        return;
+    }
     if(ui.page==CheckPage::Menu) {
         header(f,"CAR CHECK"); fb_vline(f,160,38,180,true);fb_hline(f,0,130,320,true);
-        const char *names[]={"MOTOR","POWER","VCU/SENSOR","GPS/RTK"};
+        const char *names[]={"MOTOR","BATTERY","VCU/SENSOR","GPS/RTK"};
         for(int i=0;i<4;++i) {
             int x=i%2*160+8,y=49+i/2*90;
             fb_text(f,x,y,names[i],2);fb_text(f,x,y+28,d.summaries[i][0],1);fb_text(f,x,y+45,d.summaries[i][1],1);
@@ -121,7 +131,7 @@ void check_draw(FrameBuffer &f,CheckUi &ui,const CheckSnapshot &d,const Diagnost
         for(int i=0;i<10;++i) for(int j=0;j<3;++j) fb_text(f,j==0?8:j==1?112:216,58+i*15,d.motor[i][j],1);
         for(int i=0;i<10;++i) {GraphKind kind;if(check_graph_for_row(ui.page,i,kind)) fb_text(f,1,58+i*15,"*",1);}
         footer(f);
-    } else if(ui.page==CheckPage::Power) {header(f,"POWER");rows(f,d.power,ui.page);footer(f);}
+    } else if(ui.page==CheckPage::Power) {header(f,"BATTERY");rows(f,d.power,ui.page);footer(f);}
     else if(ui.page==CheckPage::Vcu) {header(f,"VCU / SENSOR");rows(f,d.vcu,ui.page);footer(f);}
     else if(ui.page==CheckPage::Gps) {header(f,"GPS / RTK");rows(f,d.gps,ui.page);footer(f);}
     else if(ui.page==CheckPage::Sensors) {header(f,"SENSORS");rows(f,d.sensors,ui.page);footer(f);}

@@ -5,6 +5,7 @@
 // ============================================================
 #pragma once
 #include <cstdint>
+#include "modules/lap_temperature.h"
 #include "cluster_command.h"
 // [SINGLE SOURCE OF TRUTH] Identical copy lives in the Cluster repo.
 // Any edit here MUST be mirrored there. Owner: 김도현.
@@ -77,6 +78,8 @@ constexpr uint32_t CAN_ID_CLUSTER_LAP_HISTORY = 0x18FBFFC0;
 // Same lap-number multiplexer as LAP_HISTORY, carrying BMS SOC consumed by
 // that lap. Separate ID keeps the existing lap-time decoder contract stable.
 constexpr uint32_t CAN_ID_CLUSTER_LAP_BATTERY = 0x18FCFFC0;
+constexpr uint32_t CAN_ID_CLUSTER_LAP_CONTROLLER_MEAN = 0x18FDFFC0;
+constexpr uint32_t CAN_ID_CLUSTER_LAP_CONTROLLER_RISE = 0x18FEFFC0;
 
 // Node reset report, same layout on every ESP32 node (0x1CFDFF00 | SA), 1 s.
 // Repeated so a logger that rebooted at the same moment still records it.
@@ -221,6 +224,8 @@ void encode_cluster_lap_time(uint32_t current_lap_ms, uint32_t last_lap_ms, uint
 void encode_cluster_lap_status(const ClusterLapStatus &lap, uint8_t out[8]);
 void encode_cluster_lap_history(const ClusterLapHistoryFrame &lap, uint8_t out[8]);
 void encode_cluster_lap_battery(const ClusterLapHistoryFrame &lap, uint8_t out[8]);
+void encode_cluster_lap_temperature(const ClusterLapHistoryFrame &lap,
+    const LapTemperatureSummary &temperature, bool rise, uint8_t out[8]);
 void encode_reset_report(uint8_t reason, uint8_t rom_reason, uint32_t uptime_ms,
                          uint32_t resets_since_power_on, uint8_t life,
                          uint8_t out[8]);

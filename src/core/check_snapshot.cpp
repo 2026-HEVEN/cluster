@@ -232,6 +232,8 @@ HomeData check_home_snapshot(uint32_t now) {
     if(state.soc_valid&&state.bms_ble_connected&&fresh(state.bms_last_rx_ms,now,5000)) d.soc=std::lround(state.soc*100);
     d.bms_ok=state.bms_ble_connected&&fresh(state.bms_last_rx_ms,now,5000);
     d.hv=state.bms_pack_voltage;
+    d.lv=state.vcu_lv_supply.centivolts/100.0f;
+    d.lv_ok=lv_monitor::fresh(state.vcu_lv_seen,state.vcu_lv_last_ms,now,state.vcu_lv_supply);
     d.lap=gps_laptimer::current_lap_number();d.best_lap=state.best_lap_count;d.lap_ms=state.current_lap_ms;d.best_ms=state.best_lap_ms;
     d.lap_battery_x10=state.current_lap_battery_used_x10;
     d.last_lap_battery_x10=state.last_lap_battery_used_x10;

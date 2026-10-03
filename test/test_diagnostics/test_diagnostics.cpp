@@ -259,6 +259,28 @@ void test_bms_home_and_graph_sources(){
     TEST_ASSERT_FLOAT_WITHIN(.001,-.537,v.get(Channel::BmsPower));
     d=check_home_snapshot(605001);TEST_ASSERT_FALSE(d.bms_ok);
 }
+void test_home_lv_voltage_validity_and_alignment(){
+    HomeData d=check_home_snapshot(600000);
+    TEST_ASSERT_FALSE(d.lv_ok);
+    state.vcu_lv_seen=true;state.vcu_lv_last_ms=600000;
+    state.vcu_lv_supply=lv_monitor::Sample(1200,2791,true,42);
+    d=check_home_snapshot(600500);
+    TEST_ASSERT_TRUE(d.lv_ok);TEST_ASSERT_FLOAT_WITHIN(.001,12.0,d.lv);
+    FrameBuffer actual,expected;actual.clear();expected.clear();
+    check_home_draw(actual,d,false);fb_text(expected,232,214,"12.00 V",2);
+    for(int y=214;y<228;++y)for(int x=220;x<320;++x)
+        TEST_ASSERT_EQUAL(expected.get(x,y),actual.get(x,y));
+    d=check_home_snapshot(600501);TEST_ASSERT_FALSE(d.lv_ok);
+    actual.clear();expected.clear();check_home_draw(actual,d,false);
+    fb_text(expected,268,214,"-- V",2);
+    for(int y=214;y<228;++y)for(int x=220;x<320;++x)
+        TEST_ASSERT_EQUAL(expected.get(x,y),actual.get(x,y));
+    state.vcu_lv_supply.valid=false;
+    TEST_ASSERT_FALSE(check_home_snapshot(600000).lv_ok);
+    state.vcu_lv_supply=lv_monitor::Sample(0,0,true,43);
+    d=check_home_snapshot(600000);
+    TEST_ASSERT_TRUE(d.lv_ok);TEST_ASSERT_FLOAT_WITHIN(.001,0,d.lv);
+}
 void test_home_brake_status(){
     state.vcu_cluster_status_last_ms=600000;state.brake=true;
     HomeData d=check_home_snapshot(600000);
@@ -325,6 +347,8 @@ void fixture(){
     state.bms_ble_connected=true;state.bms_last_rx_ms=599900;state.soc_valid=true;state.soc=.78f;
     state.bms_pack_voltage=53.7f;state.bms_current=48.2f;state.bms_temp_c=28;
     state.bms_remaining_mah=23000;state.bms_soh=98;state.bms_cycles=42;
+    state.vcu_lv_seen=true;state.vcu_lv_last_ms=599950;
+    state.vcu_lv_supply=lv_monitor::Sample(1200,2791,true,42);
     state.em_record_seen=true;state.em_record_last_ms=599990;state.em_hv_decivolts=537;
     state.em_lv_centivolts=1342;state.em_current_deciamps=482;state.em_cpu_centidegrees=3150;
     state.gear=2;state.gear_from_can=true;state.brake=true;state.hv_active=true;state.vcu_cluster_status_last_ms=599950;
@@ -376,6 +400,7 @@ void test_render_production_screens(){
     state=ClusterState{};check_snapshot(d,600000);u.page=CheckPage::Motor;f.clear();check_draw(f,u,d,h,v,600000);write_image("motor_wait",f,true);
     f.clear();check_home_draw(f,check_home_snapshot(600000),true);write_image("home_wait",f,true);
     HomeData max;max.speed_ok=max.bms_ok=max.throttle_ok=true;max.speed=6553.4f;max.hv=999.9f;max.soc=100;max.throttle=100;
+    max.lv_ok=true;max.lv=655.35f;
     max.lap=255;max.lap_ms=UINT32_MAX;max.best_ms=UINT32_MAX;
     f.clear();check_home_draw(f,max,false);write_image("home_limits",f);
     std::printf("DiagnosticHistory host bytes: %zu\n",sizeof(h));
@@ -390,6 +415,6 @@ int main(int,char**){
     RUN_TEST(test_disconnected_not_zero_ok);RUN_TEST(test_independent_motor_frames);RUN_TEST(test_drivetrain_latch_snapshot_and_history);RUN_TEST(test_wss_never_rpm_fallback);RUN_TEST(test_home_speed_holds_through_short_invalid);
     RUN_TEST(test_requests_distinct_and_no_pressure);RUN_TEST(test_sensor_quality_not_numeric_legacy);
     RUN_TEST(test_observer_fix_and_rtcm_independent);RUN_TEST(test_graph_voltage_scaling_and_back_button);
-    RUN_TEST(test_bms_home_and_graph_sources);RUN_TEST(test_home_brake_status);RUN_TEST(test_home_hit_areas);RUN_TEST(test_back_and_car_check_navigation);RUN_TEST(test_detail_rows_have_no_separators);RUN_TEST(test_render_production_screens);
+    RUN_TEST(test_bms_home_and_graph_sources);RUN_TEST(test_home_lv_voltage_validity_and_alignment);RUN_TEST(test_home_brake_status);RUN_TEST(test_home_hit_areas);RUN_TEST(test_back_and_car_check_navigation);RUN_TEST(test_detail_rows_have_no_separators);RUN_TEST(test_render_production_screens);
     return UNITY_END();
 }

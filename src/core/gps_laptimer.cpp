@@ -100,6 +100,26 @@ bool lap_battery_measurement_valid = false;
 bool lap_battery_segment_active = false;
 uint16_t lap_battery_segment_start_x10 = 0;
 uint16_t lap_battery_accumulated_x10 = 0;
+LapTemperatureHistory temperature_history;
+
+void temperature_samples(LapTemperatureSample samples[2]) {
+    samples[0] = {static_cast<int16_t>(state.controller_temp),
+                  state.controller_l_fb2_last_ms, state.controller_l_fb2_last_ms != 0};
+    samples[1] = {static_cast<int16_t>(state.controller_temp_r),
+                  state.controller_r_fb2_last_ms, state.controller_r_fb2_last_ms != 0};
+}
+
+void update_temperature(uint32_t now, bool running) {
+    LapTemperatureSample samples[2];
+    temperature_samples(samples);
+    temperature_history.update(now, running, samples);
+}
+
+void begin_temperature(uint8_t lap, uint32_t now) {
+    LapTemperatureSample samples[2];
+    temperature_samples(samples);
+    temperature_history.begin(lap, now, samples);
+}
 
 bool bms_soc_x10(uint32_t now, uint16_t &value) {
     if (!state.bms_ble_connected || !state.soc_valid || state.bms_last_rx_ms == 0 ||
@@ -381,6 +401,7 @@ void update_departure_timer(uint32_t now) {
     last_cross_ms = departure_speed_since_ms;
     departure_speed_since_ms = 0;
     begin_lap_battery(now);
+    begin_temperature(1, now);
 }
 
 float distance_m(double lat1, double lon1, double lat2, double lon2) {
@@ -497,6 +518,9 @@ void record_lap(uint32_t cross_ms) {
     const uint32_t lap_ms = cross_ms - last_cross_ms;
     const uint8_t completed_lap = state.lap_count < 99 ? (uint8_t)(state.lap_count + 1) : 99;
     complete_lap_battery(completed_lap, millis());
+    LapTemperatureSample samples[2];
+    temperature_samples(samples);
+    temperature_history.complete(millis(), samples);
     state.last_lap_ms = lap_ms;
     if (state.best_lap_ms == 0 || lap_ms < state.best_lap_ms) {
         state.best_lap_ms = lap_ms;
@@ -507,6 +531,7 @@ void record_lap(uint32_t cross_ms) {
     if (state.lap_count < 99) ++state.lap_count;
     lap_armed = false;
     begin_lap_battery(millis());
+    begin_temperature(state.lap_count < 99 ? state.lap_count + 1 : 0, millis());
 }
 
 void update_lap(double lat, double lon) {
@@ -647,6 +672,7 @@ void begin() {
 }
 
 void poll() {
+    update_temperature(millis(), timing_active);
     noInterrupts();
     const uint32_t pps_ms = pps_last_ms_isr;
     const uint32_t pps_count_snapshot = pps_count_isr;
@@ -706,6 +732,7 @@ bool start_at_current_fix() {
     state.best_lap_count = 0;
     state.best_lap_ms = 0;
     clear_lap_battery_history();
+    temperature_history.reset();
     return true;
 }
 
@@ -713,6 +740,7 @@ bool stop() {
     if (!have_start || timing_paused || (!timing_active && !waiting_departure)) return false;
 
     paused_waiting_departure = waiting_departure;
+    update_temperature(millis(), false);
     if (timing_active) finish_lap_battery_segment(millis());
     paused_lap_ms = timing_active && last_cross_ms != 0
         ? millis() - last_cross_ms
@@ -742,6 +770,7 @@ bool resume() {
         resume_lap_battery_segment(millis());
     }
     paused_waiting_departure = false;
+    update_temperature(millis(), timing_active);
     return true;
 }
 
@@ -765,6 +794,7 @@ void reset() {
     state.best_lap_count = 0;
     state.best_lap_ms = 0;
     clear_lap_battery_history();
+    temperature_history.reset();
 }
 
 size_t write_rtcm(const uint8_t *data, size_t len) {
@@ -825,6 +855,14 @@ uint8_t current_lap_number() {
 
 float gga_rate_hz() {
     return gga_rate;
+}
+
+void controller_temperature_update() {
+    update_temperature(millis(), timing_active);
+}
+
+LapTemperatureSummary lap_temperature(uint8_t lap) {
+    return temperature_history.summary(lap);
 }
 
 float rmc_rate_hz() {

@@ -182,6 +182,25 @@ void encode_cluster_lap_battery(const ClusterLapHistoryFrame &lap, uint8_t out[8
     out[7] = lap.life;
 }
 
+void encode_cluster_lap_temperature(const ClusterLapHistoryFrame &lap,
+    const LapTemperatureSummary &temperature, bool rise, uint8_t out[8]) {
+    out[0] = lap.lap_number;
+    out[1] = (lap.valid && temperature.mean_valid[0] ? 0x01u : 0u) |
+             (lap.valid && temperature.mean_valid[1] ? 0x02u : 0u) |
+             (lap.valid && temperature.rise_valid[0] ? 0x04u : 0u) |
+             (lap.valid && temperature.rise_valid[1] ? 0x08u : 0u) |
+             (lap.completed ? 0x10u : 0u) | (lap.active ? 0x20u : 0u) |
+             (lap.timer_running ? 0x40u : 0u) | (lap.timer_paused ? 0x80u : 0u);
+    for (unsigned side = 0; side < 2; ++side) {
+        const bool valid = lap.valid && (rise ? temperature.rise_valid[side] : temperature.mean_valid[side]);
+        const int16_t value = valid ? (rise ? temperature.rise_x10[side] : temperature.mean_x10[side])
+                                    : LAP_TEMPERATURE_INVALID;
+        put_u16le(out + 2 + side * 2, static_cast<uint16_t>(value));
+    }
+    out[6] = lap.session;
+    out[7] = lap.life;
+}
+
 void ClusterLapHistory::clear_session(bool emit_invalid) {
     if (emit_invalid && max_lap_seen_ != 0) {
         clear_lap_ = 1;

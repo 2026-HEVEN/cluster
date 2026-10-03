@@ -181,14 +181,14 @@ namespace {
         }
     }
 
-    void transmit_ext(uint32_t id, const uint8_t data[8], uint32_t wait_ms = 5) {
+    bool transmit_ext(uint32_t id, const uint8_t data[8], uint32_t wait_ms = 5) {
         twai_message_t m = {};
         m.identifier = id;
         m.extd = 1;
         m.data_length_code = 8;
         for (int i = 0; i < 8; ++i) m.data[i] = data[i];
-        if (g_twai_offline) return;
-        twai_transmit(&m, pdMS_TO_TICKS(wait_ms));
+        if (g_twai_offline) return false;
+        return twai_transmit(&m, pdMS_TO_TICKS(wait_ms)) == ESP_OK;
     }
 
     uint8_t soc_percent() {
@@ -332,11 +332,13 @@ void poll_rx() {
                 decode_fb2(m.data, state.controller_temp, state.motor_temp,
                            state.controller_status, state.error1, state.error2, state.error3);
                 state.controller_l_fb2_last_ms = now;
+                gps_laptimer::controller_temperature_update();
                 break;
             case CAN_ID_FB2_R:
                 decode_fb2(m.data, state.controller_temp_r, state.motor_temp_r,
                            state.controller_status_r, state.error1_r, state.error2_r, state.error3_r);
                 state.controller_r_fb2_last_ms = now;
+                gps_laptimer::controller_temperature_update();
                 break;
             case CAN_ID_VCU_CLUSTER_STATUS:
                 state.vcu_cluster_status_last_ms = now;
@@ -458,22 +460,52 @@ void send_lap_history(uint8_t current_lap_number, bool timer_running,
     input.timer_paused = timer_paused;
     history.update(input);
 
+    // Bounded nonblocking queue: four packets per lap no longer fit in one
+    // TWAI enqueue burst when active/final/replay frames coincide.
+    struct Packet { uint32_t id; uint8_t data[8]; };
+    static Packet pending[16];
+    static uint8_t head = 0, size = 0, session = 0;
+    if (session != history.session() || g_twai_offline) {
+        head = size = 0;
+        session = history.session();
+    }
+    if (g_twai_offline) return;
+    auto enqueue = [&](uint32_t id, const uint8_t data[8]) {
+        Packet &packet = pending[(head + size) % 16];
+        packet.id = id;
+        for (int i = 0; i < 8; ++i) packet.data[i] = data[i];
+        ++size;
+    };
+
     auto send = [&](ClusterLapHistoryFrame &frame) {
         uint8_t data[8];
         frame.life = life++;
         encode_cluster_lap_history(frame, data);
-        transmit_ext(CAN_ID_CLUSTER_LAP_HISTORY, data, 0);
+        enqueue(CAN_ID_CLUSTER_LAP_HISTORY, data);
         encode_cluster_lap_battery(frame, data);
-        transmit_ext(CAN_ID_CLUSTER_LAP_BATTERY, data, 0);
+        enqueue(CAN_ID_CLUSTER_LAP_BATTERY, data);
+        if (frame.lap_number <= LAP_TEMPERATURE_MAX) {
+            const auto temperature = gps_laptimer::lap_temperature(frame.lap_number);
+            encode_cluster_lap_temperature(frame, temperature, false, data);
+            enqueue(CAN_ID_CLUSTER_LAP_CONTROLLER_MEAN, data);
+            encode_cluster_lap_temperature(frame, temperature, true, data);
+            enqueue(CAN_ID_CLUSTER_LAP_CONTROLLER_RISE, data);
+        }
     };
 
     ClusterLapHistoryFrame frame;
-    if (now - active_send_ms >= 200) {
+    if (size <= 8 && now - active_send_ms >= 200) {
         active_send_ms = now;
         if (history.take_transition_frame(frame)) send(frame);
         if (history.active_frame(frame)) send(frame);
     }
-    if (history.due_completed_frame(now, frame)) send(frame);
+    if (size <= 12 && history.due_completed_frame(now, frame)) send(frame);
+    for (int sent = 0; sent < 4 && size != 0; ++sent) {
+        const Packet &packet = pending[head];
+        if (!transmit_ext(packet.id, packet.data, 0)) break;
+        head = (head + 1) % 16;
+        --size;
+    }
 }
 
 } // namespace can_bus

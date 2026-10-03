@@ -31,8 +31,9 @@ struct CheckSnapshot {
     uint8_t lap_battery_count=0,lap_battery_active=0;
 };
 struct HomeData {
-    float speed=0,throttle=0,hv=0;
+    float speed=0,throttle=0,hv=0,lv=0;
     bool speed_ok=false,throttle_ok=false,bms_ok=false,gear_ok=false;
+    bool lv_ok=false;
     bool brake_valid=false,brake_active=false;
     int soc=-1;
     uint8_t gear=0,lap=0,best_lap=0;

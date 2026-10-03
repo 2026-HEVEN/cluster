@@ -28,6 +28,10 @@ void check_home_draw(FrameBuffer &f,const HomeData &d,bool warning) {
     right_text(f,316,162,"HV PACK");
     if(d.bms_ok&&d.hv>=0.0f&&d.hv<1000.0f) std::snprintf(b,sizeof(b),"%.1f V",d.hv);else if(d.bms_ok) std::snprintf(b,sizeof(b),"ERR V");else std::snprintf(b,sizeof(b),"-- V");
     right_text(f,316,177,b,2);
+    right_text(f,316,201,"LV");
+    if(d.lv_ok) std::snprintf(b,sizeof(b),"%.2f V",d.lv);
+    else std::snprintf(b,sizeof(b),"-- V");
+    right_text(f,316,214,b,2);
     if(d.throttle_ok) std::snprintf(b,sizeof(b),"THR %.0f%%",d.throttle);else std::snprintf(b,sizeof(b),"THR --");
     fb_text(f,8,128,b,1);bar(f,72,123,196,20,d.throttle/100,d.throttle_ok);
     std::snprintf(b,sizeof(b),"L%u %lu:%02lu.%02lu",d.lap,static_cast<unsigned long>(d.lap_ms/60000),

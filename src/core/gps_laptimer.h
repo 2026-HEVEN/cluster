@@ -1,6 +1,7 @@
 #pragma once
 #include <cstddef>
 #include <cstdint>
+#include "modules/lap_temperature.h"
 
 namespace gps_laptimer {
 void begin();
@@ -21,6 +22,8 @@ uint32_t speed_sequence();
 bool timer_running();
 bool timer_paused();
 uint8_t current_lap_number();
+void controller_temperature_update();
+LapTemperatureSummary lap_temperature(uint8_t lap);
 float gga_rate_hz();
 float rmc_rate_hz();
 uint8_t fix_quality();

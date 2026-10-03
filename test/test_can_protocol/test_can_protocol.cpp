@@ -487,6 +487,37 @@ void test_completed_replay_no_catchup_burst(void) {
     TEST_ASSERT_FALSE(history.due_completed_frame(10105, frame));
 }
 
+void test_encode_lap_controller_temperature(void) {
+    TEST_ASSERT_EQUAL_HEX32(0x18FDFFC0, CAN_ID_CLUSTER_LAP_CONTROLLER_MEAN);
+    TEST_ASSERT_EQUAL_HEX32(0x18FEFFC0, CAN_ID_CLUSTER_LAP_CONTROLLER_RISE);
+    ClusterLapHistoryFrame lap;
+    lap.lap_number = 2;
+    lap.valid = lap.completed = true;
+    lap.session = 7;
+    lap.life = 12;
+    LapTemperatureSummary temp;
+    temp.mean_x10[0] = 533;
+    temp.mean_valid[0] = temp.rise_valid[0] = true;
+    temp.rise_x10[0] = -33;
+    uint8_t data[8];
+    encode_cluster_lap_temperature(lap, temp, false, data);
+    TEST_ASSERT_EQUAL_HEX8(0x15, data[1]);
+    TEST_ASSERT_EQUAL_HEX8(0x15, data[2]);
+    TEST_ASSERT_EQUAL_HEX8(0x02, data[3]);
+    TEST_ASSERT_EQUAL_HEX8(0x00, data[4]);
+    TEST_ASSERT_EQUAL_HEX8(0x80, data[5]);
+    TEST_ASSERT_EQUAL_UINT8(7, data[6]);
+    TEST_ASSERT_EQUAL_UINT8(12, data[7]);
+    encode_cluster_lap_temperature(lap, temp, true, data);
+    TEST_ASSERT_EQUAL_HEX8(0xDF, data[2]);
+    TEST_ASSERT_EQUAL_HEX8(0xFF, data[3]);
+    lap.valid = false;
+    lap.completed = false;
+    encode_cluster_lap_temperature(lap, temp, false, data);
+    TEST_ASSERT_EQUAL_UINT8(0, data[1]);
+    TEST_ASSERT_EQUAL_HEX8(0x80, data[3]);
+}
+
 void test_encode_reset_report(void) {
     // 모든 ESP32 노드 공통 배치. 업타임은 LE 32비트, 리셋 횟수는 255에서 포화.
     uint8_t d[8];
@@ -557,5 +588,6 @@ int main(int, char **) {
     RUN_TEST(test_completed_laps_refresh_each_second);
     RUN_TEST(test_completed_replay_no_catchup_burst);
     RUN_TEST(test_encode_reset_report);
+    RUN_TEST(test_encode_lap_controller_temperature);
     return UNITY_END();
 }

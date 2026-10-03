@@ -138,6 +138,9 @@ struct ClusterLapStatus {
 
 constexpr uint8_t CLUSTER_LAP_HISTORY_MAX = 99;
 constexpr uint8_t CLUSTER_LAP_HISTORY_FINAL_REPEATS = 3;
+constexpr uint8_t CLUSTER_LAP_RECENT_COMPLETED_MAX = 9; // plus the active lap
+constexpr uint32_t CLUSTER_LAP_RECENT_RESEND_MS = 1000;
+constexpr uint32_t CLUSTER_LAP_OLD_RESEND_MS = 10000;
 
 struct ClusterLapHistoryInput {
     uint8_t current_lap_number = 0;  // 0=no configured Start/Finish line
@@ -188,6 +191,9 @@ private:
     uint8_t resend_count_ = 0;
     uint32_t resend_ms_ = 0;
     uint32_t resend_credit_ = 0;
+    uint32_t old_resend_credit_ = 0;
+    uint8_t recent_cursor_ = 0;
+    uint8_t old_cursor_ = 0;
     uint8_t final_lap_ = 0;
     uint8_t final_repeats_ = 0;
     uint8_t clear_lap_ = 0;

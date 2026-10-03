@@ -103,8 +103,12 @@ the reset report `0x1CFDFFC0`; vehicle-wide allocation still needs coordination.
 Invalid raw is `INT16_MIN` (-32768, bytes `00 80`). Do not interpret it as a
 temperature of -3276.8 C. Flags are authoritative.
 
-Current lap: target 5 Hz. Every completed lap: target 1 Hz, distributed over
-the second. Final announcements follow the existing repeated-final path.
+Current lap: target 5 Hz. The latest nine completed laps: target 1 Hz each,
+distributed over the second. The current lap plus those completed laps form
+the recent ten-slot window. Older completed laps: target 0.1 Hz each, spread
+over ten seconds. On lap 11, lap 1 slows down; on lap 12, lap 2 also slows down.
+Final announcements follow the existing repeated-final path. Start/Reset still
+clears the previous session. CAN congestion can delay these target rates.
 Frames for mean and rise are transmitted with the corresponding lap history
 announcement. A bounded 16-packet queue retries TWAI enqueue failures without
 blocking, and drains at most four packets per 5 ms service. Prolonged CAN

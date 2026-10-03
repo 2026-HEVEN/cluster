@@ -443,7 +443,7 @@ void test_lap_history_reset_clears_old_slots(void) {
 }
 
 void test_completed_laps_refresh_each_second(void) {
-    const uint8_t counts[] = {1, 7, 99};
+    const uint8_t counts[] = {1, 7, 9, 10, 11, 50, 99};
     for (const uint8_t count : counts) {
         ClusterLapHistory history;
         ClusterLapHistoryInput in;
@@ -459,17 +459,19 @@ void test_completed_laps_refresh_each_second(void) {
         const uint32_t start = 0xFFFFFF00u;
         TEST_ASSERT_FALSE(history.due_completed_frame(start, frame));
         uint8_t seen[99]{};
-        for (uint32_t elapsed = 5; elapsed <= 3000; elapsed += 5) {
+        for (uint32_t elapsed = 5; elapsed <= 30010; elapsed += 5) {
             if (!history.due_completed_frame(start + elapsed, frame)) continue;
             TEST_ASSERT_TRUE(frame.completed);
             TEST_ASSERT_EQUAL_UINT32(50000 + frame.lap_number, frame.lap_time_ms);
             ++seen[frame.lap_number - 1];
         }
-        for (uint8_t lap = 0; lap < count; ++lap) TEST_ASSERT_EQUAL_UINT8(3, seen[lap]);
+        const uint8_t old_count = count > 9 ? count - 9 : 0;
+        for (uint8_t lap = 0; lap < count; ++lap)
+            TEST_ASSERT_EQUAL_UINT8(lap < old_count ? 3 : 30, seen[lap]);
         // Reset discards every completed slot, including pending replay credit.
         history.update(ClusterLapHistoryInput{});
-        TEST_ASSERT_FALSE(history.due_completed_frame(start + 3010, frame));
-        TEST_ASSERT_FALSE(history.due_completed_frame(start + 5010, frame));
+        TEST_ASSERT_FALSE(history.due_completed_frame(start + 30015, frame));
+        TEST_ASSERT_FALSE(history.due_completed_frame(start + 50015, frame));
     }
 }
 
@@ -485,6 +487,35 @@ void test_completed_replay_no_catchup_burst(void) {
     TEST_ASSERT_TRUE(history.due_completed_frame(10100, frame));
     TEST_ASSERT_FALSE(history.due_completed_frame(10100, frame));
     TEST_ASSERT_FALSE(history.due_completed_frame(10105, frame));
+}
+
+void test_completed_replay_window_moves_on_crossing(void) {
+    ClusterLapHistory history;
+    ClusterLapHistoryInput in;
+    in.current_lap_number = 1;
+    history.update(in);
+    for (uint8_t lap = 1; lap <= 10; ++lap) {
+        in.current_lap_number = lap + 1;
+        in.completed_lap_count = lap;
+        in.last_lap_ms = 60000 + lap;
+        history.update(in);
+    }
+    ClusterLapHistoryFrame frame;
+    for (uint8_t completed = 10; completed <= 11; ++completed) {
+        in.current_lap_number = completed + 1;
+        in.completed_lap_count = completed;
+        in.last_lap_ms = 60000 + completed;
+        history.update(in);
+        const uint32_t start = (completed - 10) * 20000;
+        TEST_ASSERT_FALSE(history.due_completed_frame(start, frame));
+        uint8_t seen[11]{};
+        for (uint32_t elapsed = 5; elapsed <= 10010; elapsed += 5) {
+            if (history.due_completed_frame(start + elapsed, frame))
+                ++seen[frame.lap_number - 1];
+        }
+        for (uint8_t lap = 0; lap < completed; ++lap)
+            TEST_ASSERT_EQUAL_UINT8(lap < completed - 9 ? 1 : 10, seen[lap]);
+    }
 }
 
 void test_encode_lap_controller_temperature(void) {
@@ -587,6 +618,7 @@ int main(int, char **) {
     RUN_TEST(test_lap_history_reset_clears_old_slots);
     RUN_TEST(test_completed_laps_refresh_each_second);
     RUN_TEST(test_completed_replay_no_catchup_burst);
+    RUN_TEST(test_completed_replay_window_moves_on_crossing);
     RUN_TEST(test_encode_reset_report);
     RUN_TEST(test_encode_lap_controller_temperature);
     return UNITY_END();

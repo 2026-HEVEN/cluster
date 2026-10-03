@@ -220,6 +220,8 @@ void ClusterLapHistory::clear_session(bool emit_invalid) {
     completed_cursor_ = 0;
     resend_count_ = 0;
     resend_credit_ = 0;
+    old_resend_credit_ = 0;
+    recent_cursor_ = old_cursor_ = 0;
     final_lap_ = 0;
     final_repeats_ = 0;
     session_present_ = false;
@@ -320,17 +322,34 @@ bool ClusterLapHistory::due_completed_frame(uint32_t now_ms, ClusterLapHistoryFr
         resend_count_ = completed_count_;
         resend_ms_ = now_ms;
         resend_credit_ = 0;
+        old_resend_credit_ = 0;
+        recent_cursor_ = old_cursor_ = 0;
         return false;
     }
     const uint32_t elapsed = now_ms - resend_ms_;
     resend_ms_ = now_ms;
     if (completed_count_ == 0) return false;
-    // Spread N completed slots over one second; never burst after a task stall.
+    // Keep the active lap and nine recent completed laps fast. Older slots
+    // retain their meaning but are spread over ten seconds, without catch-up.
     const uint32_t bounded_elapsed = elapsed > 1000 ? 1000 : elapsed;
-    resend_credit_ += bounded_elapsed * completed_count_;
-    if (resend_credit_ < 1000) return false;
-    resend_credit_ %= 1000;
-    return next_completed_frame(frame);
+    const uint8_t recent_count = completed_count_ < CLUSTER_LAP_RECENT_COMPLETED_MAX
+        ? completed_count_ : CLUSTER_LAP_RECENT_COMPLETED_MAX;
+    const uint8_t old_count = completed_count_ - recent_count;
+    resend_credit_ += bounded_elapsed * recent_count;
+    old_resend_credit_ += bounded_elapsed * old_count;
+    // Service the slower pool first on a simultaneous deadline to avoid
+    // starving old records; the recent pool remains due on the next call.
+    if (old_count && old_resend_credit_ >= CLUSTER_LAP_OLD_RESEND_MS) {
+        old_resend_credit_ %= CLUSTER_LAP_OLD_RESEND_MS;
+        fill_completed(static_cast<uint8_t>(old_cursor_ + 1), frame);
+        old_cursor_ = (old_cursor_ + 1) % old_count;
+        return true;
+    }
+    if (resend_credit_ < CLUSTER_LAP_RECENT_RESEND_MS) return false;
+    resend_credit_ %= CLUSTER_LAP_RECENT_RESEND_MS;
+    fill_completed(static_cast<uint8_t>(old_count + recent_cursor_ + 1), frame);
+    recent_cursor_ = (recent_cursor_ + 1) % recent_count;
+    return true;
 }
 
 VcuClusterStatus decode_vcu_cluster_status(const uint8_t data[8]) {

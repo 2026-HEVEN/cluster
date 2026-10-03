@@ -5,11 +5,15 @@
 // ============================================================
 #pragma once
 #include <cstdint>
+#include "lv_monitor_protocol.h"
 #include "modules/car_check_receiver.h"
 // [LOCKED] Cluster shared state bus. ONLY core/app_wiring.cpp may include this.
 // Module files (src/modules/*) must never include state.h.
 
 struct ClusterState {
+    lv_monitor::Sample vcu_lv_supply;
+    bool vcu_lv_seen = false;
+    uint32_t vcu_lv_last_ms = 0;
     CarCheckReceiver car_check;
     bool em_record_seen = false;
     uint32_t em_record_last_ms = 0;

@@ -284,6 +284,11 @@ void poll_rx() {
             continue;
         }
         switch (m.identifier) {
+            case lv_monitor::CAN_ID:
+                state.vcu_lv_supply = lv_monitor::decode(m.data);
+                state.vcu_lv_seen = true;
+                state.vcu_lv_last_ms = now;
+                break;
             case CAN_ID_EM_RECORD: {
                 const EmVoltages volts = decode_em_voltages(m.data);
                 state.em_hv_decivolts = volts.hv_decivolts;

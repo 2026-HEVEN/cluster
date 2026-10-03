@@ -76,7 +76,10 @@ void check_snapshot(CheckSnapshot &d, uint32_t now) {
     row(d.power,7,"SOH / %",bms?"%u":"-- WAIT",state.bms_soh);
     row(d.power,8,"CYCLES",bms?"%u":"-- WAIT",state.bms_cycles);
     row(d.power,9,"SOURCE","BMS BLE");
-    row(d.power,10,"","");
+    row(d.power,10,"VCU LV VOLTAGE","");
+    value(d.power[10][1],25,
+          lv_monitor::fresh(state.vcu_lv_seen,state.vcu_lv_last_ms,now,state.vcu_lv_supply),
+          state.vcu_lv_supply.centivolts/100.0f,"V",2);
     row(d.power,11,"","");
     const bool vcu=fresh(state.vcu_cluster_status_last_ms,now,300);
     const bool wss=state.wss_valid&&fresh(state.vehicle_speed_last_rx_ms,now,300);
